@@ -1,6 +1,6 @@
 """
-Script de compilación para generar el ejecutable autónomo LimeRadial.exe
-utilizando PyInstaller.
+Script de compilación para generar el ejecutable autónomo optimizado LimeRadial.exe
+utilizando PyInstaller, purgando módulos innecesarios para reducir el peso.
 """
 import os
 import sys
@@ -18,9 +18,42 @@ except Exception:
     pass
 
 
+def post_clean_dist(dist_dir: Path):
+    """Elimina residuos pesados innecesarios que PyInstaller no purga por defecto."""
+    patterns_to_exclude = [
+        "onnxruntime", "pymupdf_layout", "layout_", "table_grid",
+        "qt6quick", "qt6qml", "opengl32sw",
+        "libscipy_openblas", "tkinter", "tcl", "qt6webengine",
+        "qt6network"
+    ]
+    freed = 0
+    removed_count = 0
+    for f in list(dist_dir.rglob("*")):
+        if f.is_file():
+            name_lower = f.name.lower()
+            if any(p in name_lower for p in patterns_to_exclude):
+                freed += f.stat().st_size
+                removed_count += 1
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
+
+    # Limpiar directorios vacios
+    for d in sorted(dist_dir.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        if d.is_dir():
+            try:
+                if not any(d.iterdir()):
+                    d.rmdir()
+            except Exception:
+                pass
+
+    print(f"[LimeRadial] Purgados {removed_count} archivos ({freed / (1024*1024):.2f} MB) innecesarios con exito.")
+
+
 def build():
     root = Path(__file__).resolve().parent
-    print("[LimeRadial] Iniciando empaquetado de Lime Radial Windows...")
+    print("[LimeRadial] Iniciando empaquetado optimizado de Lime Radial Windows...")
 
     # Asegurar que el icono existe
     ico_path = root / "lime.ico"
@@ -91,15 +124,55 @@ def build():
     for h in hidden_imports:
         cmd.extend(["--hidden-import", h])
 
+    # Modulos pesados innecesarios a excluir
+    excludes = [
+        "onnxruntime",
+        "pymupdf_layout",
+        "pymupdf4llm",
+        "scipy",
+        "numpy",
+        "pandas",
+        "matplotlib",
+        "tkinter",
+        "tcl",
+        "PySide6.QtQuick",
+        "PySide6.QtQml",
+        "PySide6.QtWebEngine",
+        "PySide6.QtWebEngineCore",
+        "PySide6.QtWebEngineWidgets",
+        "PySide6.QtOpenGL",
+        "PySide6.QtOpenGLWidgets",
+        "PySide6.QtPdf",
+        "PySide6.QtPdfWidgets",
+        "PySide6.QtNetwork",
+        "PySide6.QtSensors",
+        "PySide6.QtSerialPort",
+        "PySide6.QtBluetooth",
+        "PySide6.QtNfc",
+        "PySide6.QtPositioning",
+        "PySide6.QtLocation",
+        "PySide6.QtRemoteObjects",
+        "PySide6.QtScxml",
+        "PySide6.QtSql",
+        "PySide6.QtSvg",
+        "PySide6.QtTest",
+        "PySide6.Qt3DCore",
+    ]
+    for ex in excludes:
+        cmd.extend(["--exclude-module", ex])
+
     cmd.append(str(root / "run.py"))
 
-    print("[LimeRadial] Ejecutando PyInstaller...")
+    print("[LimeRadial] Ejecutando PyInstaller con exclusiones de modulos...")
     ret = subprocess.run(cmd)
     if ret.returncode == 0:
-        dist_exe = root / "dist" / "LimeRadial" / "LimeRadial.exe"
-        if not dist_exe.exists():
+        dist_dir = root / "dist" / "LimeRadial"
+        if dist_dir.exists():
+            post_clean_dist(dist_dir)
+            dist_exe = dist_dir / "LimeRadial.exe"
+        else:
             dist_exe = root / "dist" / "LimeRadial.exe"
-        print(f"[LimeRadial] Compilacion completada con exito en: {dist_exe}")
+        print(f"[LimeRadial] Compilacion optimizada completada con exito en: {dist_exe}")
         return True
     else:
         print("[LimeRadial] Error en la compilacion con PyInstaller.", file=sys.stderr)
