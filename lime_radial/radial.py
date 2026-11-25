@@ -43,7 +43,7 @@ from .convert import get_available_formats
 from .icons import FONT_FAMILY, draw_minimal_icon, load_custom_fonts
 
 # Sub-anillos de herramientas según contexto
-PDF_TOOLS_ITEMS = ["COMPRESS", "CROP", "CREATE PDF", "COLLAGE"]
+PDF_TOOLS_ITEMS = ["SPLIT PDF", "COMPRESS", "CROP", "CREATE PDF", "COLLAGE"]
 IMAGE_TOOLS_ITEMS = ["COMPRESS", "METADATA", "EDIT", "ANNOTATE", "ADD BG", "CROP", "REDACT"]
 
 
@@ -508,7 +508,7 @@ class RadialMenu(QWidget):
             label_pos = clock_to_cartesian(cx, cy, label_radius, clock_mid_deg)
 
             has_icon = raw_label.upper() in (
-                "COMPRESS", "CROP", "CREATE PDF", "COLLAGE", "METADATA", "EDIT", "ANNOTATE", "ADD BG", "REDACT"
+                "SPLIT PDF", "SPLIT", "COMPRESS", "CROP", "CREATE PDF", "COLLAGE", "METADATA", "EDIT", "ANNOTATE", "ADD BG", "REDACT"
             )
 
             if has_icon:
@@ -569,6 +569,8 @@ class RadialMenu(QWidget):
                 "TIFF": "Convert to TIFF",
                 "AVIF": "Convert to AVIF",
                 "PDF": "PDF Tools" if self.current_ring_name == "main" else "Convert to PDF",
+                "SPLIT PDF": "Split into Pages",
+                "SPLIT": "Split into Pages",
                 "REDACT": "Redact Photo",
                 "CROP": "Crop Image",
                 "EDIT": "Edit Image",

@@ -9,6 +9,8 @@ venv/
 build/
 dist/
 *.spec
+installer_output/
+*.zip
 .vscode/
 .idea/
 referencias/

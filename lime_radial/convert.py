@@ -86,13 +86,19 @@ SPREADSHEET_EXTENSIONS = {".xlsx", ".xls", ".numbers", ".csv", ".tsv", ".ods"}
 IMAGE_FORMATS = ["JPG", "PNG", "WebP", "HEIC", "TIFF", "AVIF", "BMP", "PDF"]
 AUDIO_FORMATS = ["MP3", "M4A", "WAV", "FLAC", "OGG", "Opus", "AIFF", "WMA"]
 VIDEO_FORMATS = ["MP4", "MOV", "MKV", "WebM", "AVI", "WMV", "GIF", "MP3"]
-PDF_FORMATS = ["DOCX", "PAGES", "PPTX", "XLSX", "JPG", "PNG", "EPUB", "TXT", "MD"]
+PDF_FORMATS = ["SPLIT PDF", "DOCX", "PAGES", "PPTX", "XLSX", "JPG", "PNG", "EPUB", "TXT", "MD"]
 DOCUMENT_FORMATS = ["PAGES", "Markdown", "TXT", "EPUB", "PDF", "HTML", "JPG", "PNG"]
 SLIDE_FORMATS = ["PDF", "JPG", "PNG", "TXT", "MD"]
 SPREADSHEET_FORMATS = ["CSV", "TSV", "PDF", "HTML", "TXT", "MD"]
 
 
 def get_ffmpeg_exe() -> str:
+    # 1. Si está congelado por PyInstaller
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        base_dir = Path(sys._MEIPASS)
+        for p in base_dir.rglob("ffmpeg*.exe"):
+            if p.is_file():
+                return str(p)
     try:
         import imageio_ffmpeg
         return imageio_ffmpeg.get_ffmpeg_exe()
@@ -534,16 +540,55 @@ def convert_image(source_file: str | Path, target_format: str, quality: int = 92
 
 
 # ------------------ Conversión Universal de PDF ------------------
+def split_pdf(source_file: str | Path) -> List[Path]:
+    """
+    Divide un archivo PDF en múltiples PDFs individuales (una página por archivo)
+    en la misma ubicación del archivo original.
+    Totalmente sin pérdida: preserva vectores, fuentes incrustadas, compresión y metadatos.
+    """
+    if not PYMUPDF_SUPPORTED:
+        raise RuntimeError("PyMuPDF no está disponible para dividir el PDF.")
+
+    src = Path(source_file)
+    doc = fitz.open(src)
+    outputs = []
+    total_pages = len(doc)
+    parent = src.parent
+    stem = src.stem
+
+    for page_num in range(total_pages):
+        new_doc = fitz.open()
+        new_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)
+
+        out_file = parent / f"{stem}_p{page_num + 1}.pdf"
+        counter = 1
+        while out_file.exists():
+            out_file = parent / f"{stem}_p{page_num + 1} ({counter}).pdf"
+            counter += 1
+
+        new_doc.save(str(out_file), deflate=True)
+        new_doc.close()
+        outputs.append(out_file)
+
+    doc.close()
+    return outputs
+
+
 def convert_pdf(source_file: str | Path, target_format: str) -> List[Path]:
     """
     Convierte un PDF a los formatos solicitados:
-    DOCX, PAGES, PPTX, XLSX, JPG, PNG, EPUB, TXT, MD.
+    SPLIT PDF, DOCX, PAGES, PPTX, XLSX, JPG, PNG, EPUB, TXT, MD.
     """
     if not PYMUPDF_SUPPORTED:
         raise RuntimeError("PyMuPDF no está disponible.")
         
     source_path = Path(source_file)
     fmt = target_format.upper().replace("TO ", "").strip()
+
+    # Opción de dividir en varios PDFs individuales en la misma ubicación
+    if fmt in ("SPLIT", "SPLIT PDF", "DIVIDIR", "DIVIDIR PDF", "SPLIT INTO PAGES"):
+        return split_pdf(source_path)
+
     doc = fitz.open(source_path)
     outputs = []
 

@@ -12,9 +12,13 @@ Sin abrir páginas web, sin ventanas pesadas ni confirmaciones molestas: simplem
 ## ✨ Características Principales
 
 - 🎯 **Gesto Universal Shift + Drag Inteligente**: Funciona en cualquier parte de Windows (Escritorio, Explorador de archivos, etc.). **Protegido contra falsos positivos en juegos, navegadores y otras aplicaciones**.
+- 📑 **Dividir PDF en Páginas (Split PDF)**:
+  - Al soltar un archivo PDF en **SPLIT PDF**, se divide instantáneamente en archivos individuales (`_p1.pdf`, `_p2.pdf`, ...) en la misma carpeta.
+  - **100% Sin Pérdida**: Conserva íntegramente vectores, fuentes incrustadas, compresión y metadatos sin alterar el contenido.
 - 📑 **Documentos de Office (Word, Excel, PowerPoint)**:
-  - Soporta `.docx`, `.doc`, `.xlsx`, `.xls`, `.csv`, `.pptx`, `.ppt`.
+  - Soporta `.docx`, `.doc`, `.xlsx`, `.xls`, `.csv`, `.tsv`, `.pptx`, `.ppt`.
   - Formatos destino disponibles: **PDF, TXT, MD, HTML, EPUB, PAGES, JPG, PNG**.
+- 🚀 **Inicio Automático con Windows**: Opción en la bandeja del sistema para arrancar siempre en segundo plano al encender el PC.
 - 💎 **Diseño Glassmorphism & Plus Jakarta Sans**: Acabado de vidrio esmerilado con brillo ámbar, bordes especulares y tipografía moderna Plus Jakarta Sans integrada.
 - 💊 **Cápsula Central Dinámica**: Al mover el ratón sobre cualquier gajo, el centro muestra dinámicamente el formato elegido o el peso exacto (`1.2 MB`, `JPG`, `CROP`).
 - 🔄 **Sub-Menús Radiales Inteligentes (Dwell Time)**:
@@ -49,22 +53,23 @@ Sin abrir páginas web, sin ventanas pesadas ni confirmaciones molestas: simplem
 
 ## 🚀 Instalación y Uso
 
-### Requisitos
-- **Windows 10 o Windows 11**.
-- **Python 3.10+** instalado.
+### Opción 1: Descargar Instalador Oficial (Recomendado)
+Descarga la última versión desde [**GitHub Releases**](https://github.com/JrHector30/tangerine-windows/releases):
+- **`LimeRadial-Setup.exe`**: Instalador oficial para Windows. Instala la app en `%LOCALAPPDATA%`, añade accesos directos al Menú Inicio y Escritorio, y activa el arranque automático con Windows.
+- **`LimeRadial-Portable.zip`**: Versión portable lista para usar sin instalación previa.
 
-### 1. Clonar el repositorio
-```bash
-git clone https://github.com/JrHector30/tangerine-windows.git lime-radial-windows
-cd lime-radial-windows
+---
+
+### Opción 2: Instalador Local de 1 Clic
+Si ya clonaste este repositorio, simplemente ejecuta:
+```cmd
+instalar_lime_radial.bat
 ```
+Creará automáticamente los accesos directos y lo dejará configurado en tu PC de por vida.
 
-### 2. Instalar dependencias
-```bash
-pip install -r requirements.txt
-```
+---
 
-### 3. Iniciar la aplicación
+### Opción 3: Ejecución desde código fuente (Python)
 - **Modo Silencioso (en segundo plano)**:
   Doble clic en `iniciar_lime_silencioso.vbs`. Se colocará silenciosamente en la bandeja del sistema junto al reloj.
 - **Modo Interactivo (con consola)**:

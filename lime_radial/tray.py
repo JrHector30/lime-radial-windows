@@ -5,6 +5,9 @@ probar el menú radial y abrir la ventana Acerca de / About.
 """
 from __future__ import annotations
 
+import sys
+import winreg
+from pathlib import Path
 from typing import Callable, Optional
 
 from PySide6.QtCore import QPoint, Qt
@@ -22,6 +25,42 @@ from PySide6.QtGui import (
     QPixmap,
 )
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
+
+REG_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+REG_APP_NAME = "LimeRadial"
+
+
+def is_autostart_active() -> bool:
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_RUN_KEY, 0, winreg.KEY_READ) as key:
+            winreg.QueryValueEx(key, REG_APP_NAME)
+            return True
+    except Exception:
+        return False
+
+
+def set_autostart_active(enabled: bool):
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            if enabled:
+                if getattr(sys, "frozen", False):
+                    cmd = f'"{sys.executable}"'
+                else:
+                    vbs_path = Path(__file__).resolve().parent.parent / "iniciar_lime_silencioso.vbs"
+                    if vbs_path.exists():
+                        cmd = f'wscript.exe "{vbs_path}"'
+                    else:
+                        py_exe = sys.executable.replace("python.exe", "pythonw.exe")
+                        run_py = Path(__file__).resolve().parent.parent / "run.py"
+                        cmd = f'"{py_exe}" "{run_py}"'
+                winreg.SetValueEx(key, REG_APP_NAME, 0, winreg.REG_SZ, cmd)
+            else:
+                try:
+                    winreg.DeleteValue(key, REG_APP_NAME)
+                except FileNotFoundError:
+                    pass
+    except Exception as e:
+        print(f"[LimeRadial Autostart Error]: {e}", file=sys.stderr)
 
 
 def create_lime_icon() -> QIcon:
@@ -113,6 +152,14 @@ class LimeTray(QSystemTrayIcon):
         self.toggle_action.setCheckable(True)
         self.toggle_action.setChecked(True)
         self.toggle_action.triggered.connect(self._on_toggle)
+
+        menu.addSeparator()
+
+        # Iniciar con Windows (Siempre activo en segundo plano)
+        self.autostart_action = menu.addAction("🚀 Iniciar con Windows")
+        self.autostart_action.setCheckable(True)
+        self.autostart_action.setChecked(is_autostart_active())
+        self.autostart_action.triggered.connect(set_autostart_active)
 
         menu.addSeparator()
 

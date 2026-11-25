@@ -5,6 +5,7 @@ Dibuja iconos vectoriales con QPainterPath en alta resolución.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QFont, QFontDatabase, QPainter, QPainterPath, QPen, QColor
@@ -15,14 +16,21 @@ FONT_FAMILY = "Segoe UI"
 def load_custom_fonts():
     """Carga Plus Jakarta Sans si está disponible en la carpeta fonts."""
     global FONT_FAMILY
-    font_path = Path(__file__).parent / "fonts" / "PlusJakartaSans.ttf"
-    if font_path.exists():
-        font_id = QFontDatabase.addApplicationFont(str(font_path))
-        if font_id != -1:
-            families = QFontDatabase.applicationFontFamilies(font_id)
-            if families:
-                FONT_FAMILY = families[0]
-                return FONT_FAMILY
+    candidates = [
+        Path(__file__).parent / "fonts" / "PlusJakartaSans.ttf",
+    ]
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        candidates.insert(0, Path(sys._MEIPASS) / "lime_radial" / "fonts" / "PlusJakartaSans.ttf")
+        candidates.insert(1, Path(sys._MEIPASS) / "fonts" / "PlusJakartaSans.ttf")
+
+    for font_path in candidates:
+        if font_path.exists():
+            font_id = QFontDatabase.addApplicationFont(str(font_path))
+            if font_id != -1:
+                families = QFontDatabase.applicationFontFamilies(font_id)
+                if families:
+                    FONT_FAMILY = families[0]
+                    return FONT_FAMILY
     return "Segoe UI"
 
 
@@ -69,6 +77,16 @@ def draw_minimal_icon(painter: QPainter, icon_name: str, center: QPointF, size: 
         p.moveTo(cx + d, cy + d - 4)
         p.lineTo(cx - d + 4, cy + d - 4)
         p.lineTo(cx - d + 4, cy - d)
+        painter.drawPath(p)
+
+    elif name in ("SPLIT PDF", "SPLIT", "DIVIDIR"):
+        # Dos páginas separándose limpiamente
+        w, h = hs * 0.42, hs * 0.85
+        p = QPainterPath()
+        # Página izquierda
+        p.addRoundedRect(QRectF(cx - w * 2 - 1.5, cy - h, w * 2, h * 2), 1.5, 1.5)
+        # Página derecha
+        p.addRoundedRect(QRectF(cx + 1.5, cy - h, w * 2, h * 2), 1.5, 1.5)
         painter.drawPath(p)
 
     elif name in ("CREATE PDF", "PDF"):
