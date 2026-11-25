@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+env:
+  PYTHONIOENCODING: 'utf-8'
+  PYTHONUTF8: '1'
+
 jobs:
   build:
     runs-on: windows-latest
@@ -29,24 +33,36 @@ jobs:
           pip install -r requirements.txt
 
       - name: Build Executable with PyInstaller
+        shell: pwsh
         run: |
           python build_exe.py
 
       - name: Compile Inno Setup Installer
+        shell: pwsh
         run: |
-          iscc installer.iss
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue)?.Source
+          if (-not $iscc -or -not (Test-Path $iscc)) {
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          }
+          Write-Host "Using Inno Setup compiler: $iscc"
+          & "$iscc" installer.iss
 
       - name: Create Portable Zip Package
         shell: pwsh
         run: |
           Compress-Archive -Path dist\LimeRadial\* -DestinationPath LimeRadial-Portable.zip -Force
 
+      - name: Verify Generated Assets
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path installer_output, LimeRadial-Portable.zip
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
           name: Lime Radial ${{ github.ref_name }}
-          files:
+          files: |
             installer_output/LimeRadial-Setup.exe
             LimeRadial-Portable.zip
           draft: false

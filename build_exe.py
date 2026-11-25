@@ -8,9 +8,19 @@ import shutil
 import subprocess
 from pathlib import Path
 
+# Configurar codificación segura UTF-8 para evitar errores charmap en Windows CI
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+
 def build():
     root = Path(__file__).resolve().parent
-    print("🍋 Iniciando empaquetado de Lime Radial Windows...")
+    print("[LimeRadial] Iniciando empaquetado de Lime Radial Windows...")
 
     # Asegurar que el icono existe
     ico_path = root / "lime.ico"
@@ -24,7 +34,7 @@ def build():
         pix.save(str(root / "lime.png"))
         im = Image.open(str(root / "lime.png"))
         im.save(str(ico_path), sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-        print("✔ Icono lime.ico generado.")
+        print("[LimeRadial] Icono lime.ico generado exitosamente.")
 
     # Localizar ffmpeg de imageio_ffmpeg
     try:
@@ -41,7 +51,7 @@ def build():
     binaries = []
     if ffmpeg_bin and ffmpeg_bin.exists():
         binaries.append(f"{ffmpeg_bin};imageio_ffmpeg/binaries")
-        print(f"✔ FFmpeg incluido: {ffmpeg_bin.name}")
+        print(f"[LimeRadial] FFmpeg binario incluido: {ffmpeg_bin.name}")
 
     cmd = [
         sys.executable,
@@ -83,18 +93,18 @@ def build():
 
     cmd.append(str(root / "run.py"))
 
-    print(f"Ejecutando comando PyInstaller...")
+    print("[LimeRadial] Ejecutando PyInstaller...")
     ret = subprocess.run(cmd)
     if ret.returncode == 0:
         dist_exe = root / "dist" / "LimeRadial" / "LimeRadial.exe"
         if not dist_exe.exists():
             dist_exe = root / "dist" / "LimeRadial.exe"
-        print(f"\n🎉 ¡Compilación completada exitosamente!")
-        print(f"Ejecutable generado en: {dist_exe}")
+        print(f"[LimeRadial] Compilacion completada con exito en: {dist_exe}")
         return True
     else:
-        print("\n❌ Error en la compilación con PyInstaller.", file=sys.stderr)
+        print("[LimeRadial] Error en la compilacion con PyInstaller.", file=sys.stderr)
         return False
+
 
 if __name__ == "__main__":
     success = build()
