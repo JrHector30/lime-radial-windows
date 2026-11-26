@@ -15,6 +15,9 @@ Sin abrir páginas web, sin ventanas pesadas ni confirmaciones molestas: simplem
 - 📑 **Dividir PDF en Páginas (Split PDF)**:
   - Al soltar un archivo PDF en **SPLIT PDF**, se divide instantáneamente en archivos individuales (`_p1.pdf`, `_p2.pdf`, ...) en la misma carpeta.
   - **100% Sin Pérdida**: Conserva íntegramente vectores, fuentes incrustadas, compresión y metadatos sin alterar el contenido.
+- 🔒 **Aplanar PDF (Flatten PDF)**:
+  - Al soltar un PDF en **FLATTEN PDF**, rasteriza cada página en alta definición (350 DPI) eliminando texto editable, anotaciones, campos de formulario y metadatos.
+  - Genera automáticamente `<nombre>_flattened.pdf` listo para enviar o archivar de forma inalterable.
 - 📑 **Documentos de Office (Word, Excel, PowerPoint)**:
   - Soporta `.docx`, `.doc`, `.xlsx`, `.xls`, `.csv`, `.tsv`, `.pptx`, `.ppt`.
   - Formatos destino disponibles: **PDF, TXT, MD, HTML, EPUB, PAGES, JPG, PNG**.
@@ -54,7 +57,7 @@ Sin abrir páginas web, sin ventanas pesadas ni confirmaciones molestas: simplem
 ## 🚀 Instalación y Uso
 
 ### Opción 1: Descargar Instalador Oficial (Recomendado)
-Descarga la última versión desde [**GitHub Releases**](https://github.com/JrHector30/tangerine-windows/releases):
+Descarga la última versión desde [**GitHub Releases**](https://github.com/JrHector30/lime-radial-windows/releases):
 - **`LimeRadial-Setup.exe`**: Instalador oficial para Windows. Instala la app en `%LOCALAPPDATA%`, añade accesos directos al Menú Inicio y Escritorio, y activa el arranque automático con Windows.
 - **`LimeRadial-Portable.zip`**: Versión portable lista para usar sin instalación previa.
 

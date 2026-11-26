@@ -119,7 +119,7 @@ class AboutDialog(QDialog):
         app_name.setStyleSheet("color: #FFFFFF;")
         header_layout.addWidget(app_name)
 
-        version_label = QLabel("lime-radial-windows • v1.0.0 (Open Source)")
+        version_label = QLabel("lime-radial-windows • v1.1.2 (Open Source)")
         version_label.setAlignment(Qt.AlignCenter)
         version_label.setFont(QFont(FONT_FAMILY, 9))
         version_label.setStyleSheet("color: #84CC16; font-weight: bold;")
