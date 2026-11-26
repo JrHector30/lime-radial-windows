@@ -11,7 +11,8 @@ Sin abrir páginas web, sin ventanas pesadas ni confirmaciones molestas: simplem
 
 ## ✨ Características Principales
 
-- 🎯 **Gesto Universal Shift + Drag Inteligente**: Funciona en cualquier parte de Windows (Escritorio, Explorador de archivos, etc.). **Protegido contra falsos positivos en juegos, navegadores y otras aplicaciones**.
+- 🎯 **Gesto Universal Shift + Drag Inteligente**: Funciona en cualquier parte de Windows (Escritorio, Explorador de archivos, etc.). **Protegido contra falsos positivos**: únicamente se despliega al arrastrar archivos reales seleccionados; ignora clics en zonas vacías del escritorio o carpetas (permitiendo dibujar rectángulos de selección libremente).
+- 🔄 **Actualizador Automático Integrado**: Opción en el menú de la bandeja (*Buscar actualizaciones...*) que verifica nuevas versiones en GitHub Releases, descarga el instalador y actualiza la aplicación silenciosamente en un solo clic.
 - 📑 **Dividir PDF en Páginas (Split PDF)**:
   - Al soltar un archivo PDF en **SPLIT PDF**, se divide instantáneamente en archivos individuales (`_p1.pdf`, `_p2.pdf`, ...) en la misma carpeta.
   - **100% Sin Pérdida**: Conserva íntegramente vectores, fuentes incrustadas, compresión y metadatos sin alterar el contenido.

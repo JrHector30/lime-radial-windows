@@ -6,8 +6,9 @@ Sólo se activa cuando el usuario arrastra archivos reales desde el Explorador d
 from __future__ import annotations
 
 import ctypes
+import os
 import sys
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 from PySide6.QtCore import QObject, QPoint, QTimer, Signal
 from PySide6.QtGui import QCursor
@@ -38,7 +39,7 @@ class POINT(ctypes.Structure):
 
 
 class DragShiftWatcher(QObject):
-    show_menu = Signal(QPoint)
+    show_menu = Signal(QPoint, list)
     hide_menu = Signal()
 
     def __init__(
@@ -117,6 +118,66 @@ class DragShiftWatcher(QObject):
             or root_class in EXPLORER_WINDOW_CLASSES
         )
 
+    def _get_selected_files_at_cursor(self, pos: QPoint) -> List[str]:
+        """
+        Obtiene los archivos reales actualmente seleccionados en el Explorador o Escritorio.
+        Retorna lista vacía si el usuario hizo clic en una zona vacía de la carpeta o el escritorio.
+        """
+        if sys.platform != "win32" or not self._user32:
+            return []
+        try:
+            import win32com.client
+            pt = POINT(pos.x(), pos.y())
+            hwnd = self._user32.WindowFromPoint(pt)
+            if not hwnd:
+                return []
+            root_hwnd = self._user32.GetAncestor(hwnd, 2) or hwnd
+
+            buf = ctypes.create_unicode_buffer(256)
+            self._user32.GetClassNameW(hwnd, buf, 256)
+            d_cls = buf.value
+            self._user32.GetClassNameW(root_hwnd, buf, 256)
+            r_cls = buf.value
+
+            is_desktop = d_cls in ("Progman", "WorkerW", "SysListView32") or r_cls in ("Progman", "WorkerW")
+            is_explorer = d_cls in ("CabinetWClass", "ExploreWClass", "DirectUIHWND") or r_cls in ("CabinetWClass", "ExploreWClass")
+
+            if not (is_desktop or is_explorer):
+                return []
+
+            shell = win32com.client.Dispatch("Shell.Application")
+            sw = shell.Windows()
+
+            # Caso 1: Escritorio de Windows
+            if is_desktop:
+                try:
+                    desktop = sw.FindWindowSW(0, 0, 8, 0, 1)  # SWC_DESKTOP=8, SWFO_NEEDDISPATCH=1
+                    if desktop:
+                        items = desktop.Document.SelectedItems()
+                        return [item.Path for item in items if hasattr(item, "Path") and os.path.exists(item.Path)]
+                except Exception:
+                    pass
+                return []
+
+            # Caso 2: Ventana de Explorador de archivos
+            if is_explorer:
+                rect = (ctypes.c_long * 4)()
+                for w in sw:
+                    try:
+                        if w.HWND == root_hwnd or w.HWND == hwnd:
+                            items = w.Document.SelectedItems()
+                            return [item.Path for item in items if hasattr(item, "Path") and os.path.exists(item.Path)]
+                        self._user32.GetWindowRect(w.HWND, ctypes.byref(rect))
+                        if rect[0] <= pos.x() <= rect[2] and rect[1] <= pos.y() <= rect[3]:
+                            items = w.Document.SelectedItems()
+                            return [item.Path for item in items if hasattr(item, "Path") and os.path.exists(item.Path)]
+                    except Exception:
+                        pass
+                return []
+        except Exception:
+            pass
+        return []
+
     def _tick(self):
         if not self.enabled:
             return
@@ -147,15 +208,21 @@ class DragShiftWatcher(QObject):
                     self._down_in_explorer = self._is_explorer_or_file_context(pos)
 
                 moved = (pos - self._down_at).manhattanLength() >= DRAG_THRESHOLD
-                
+
                 # SÓLO se dispara si empezó en el explorador/escritorio o hay drag activo
                 is_valid_context = self._down_in_explorer or (self._user32 and self._user32.FindWindowW("SysDragImage", None) != 0)
 
                 if moved and trigger and is_valid_context and not self._fired:
                     self._fired = True
-                    self._idle_ticks = 0
-                    self._shown_at = pos
-                    self.show_menu.emit(pos)
+                    # Comprobar si realmente hay archivos seleccionados bajo el cursor
+                    files = self._get_selected_files_at_cursor(self._down_at or pos)
+                    has_sys_drag = bool(self._user32 and self._user32.FindWindowW("SysDragImage", None) != 0)
+
+                    # Si NO hay archivos seleccionados (clic en carpeta vacía o escritorio vacío), NO mostrar el menú
+                    if files or has_sys_drag:
+                        self._idle_ticks = 0
+                        self._shown_at = pos
+                        self.show_menu.emit(pos, files)
             else:
                 self._down_at = None
                 self._down_in_explorer = False

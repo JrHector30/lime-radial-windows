@@ -104,6 +104,7 @@ class LimeTray(QSystemTrayIcon):
         on_toggle_enabled: Callable[[bool], None],
         on_change_key: Callable[[str], None],
         on_test_menu: Callable[[], None],
+        on_check_updates: Callable[[], None],
         on_about: Callable[[], None],
         on_quit: Callable[[], None],
         parent: Optional[QWidget] = None,
@@ -114,6 +115,7 @@ class LimeTray(QSystemTrayIcon):
         self.on_toggle_enabled = on_toggle_enabled
         self.on_change_key = on_change_key
         self.on_test_menu = on_test_menu
+        self.on_check_updates = on_check_updates
         self.on_about = on_about
         self.on_quit = on_quit
 
@@ -160,6 +162,12 @@ class LimeTray(QSystemTrayIcon):
         self.autostart_action.setCheckable(True)
         self.autostart_action.setChecked(is_autostart_active())
         self.autostart_action.triggered.connect(set_autostart_active)
+
+        menu.addSeparator()
+
+        # Buscar actualizaciones / Check for updates
+        update_action = menu.addAction("🔄 Buscar actualizaciones...")
+        update_action.triggered.connect(self.on_check_updates)
 
         menu.addSeparator()
 

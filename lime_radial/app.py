@@ -29,6 +29,7 @@ from .tools_ui import (
 )
 from .tray import LimeTray
 from .trigger import DragShiftWatcher
+from .updater import check_for_updates
 
 
 class ActionTask(QRunnable):
@@ -69,6 +70,7 @@ class LimeApp(QObject):
             on_toggle_enabled=self._on_toggle_watcher,
             on_change_key=self.watcher.set_trigger_key,
             on_test_menu=self._on_test_menu,
+            on_check_updates=self._on_check_updates,
             on_about=self._on_about,
             on_quit=self._on_quit,
         )
@@ -77,8 +79,8 @@ class LimeApp(QObject):
         # Iniciar monitoreo global
         self.watcher.start()
 
-    def _on_trigger_show(self, pos: QPoint):
-        self.radial_menu.popup_at(pos)
+    def _on_trigger_show(self, pos: QPoint, paths: Optional[List[str]] = None):
+        self.radial_menu.popup_at(pos, paths=paths)
 
     def _on_trigger_hide(self):
         self.radial_menu.close_menu()
@@ -86,6 +88,10 @@ class LimeApp(QObject):
     def _on_test_menu(self):
         pos = QCursor.pos()
         self.radial_menu.popup_at(pos)
+
+    def _on_check_updates(self):
+        """Abre la comprobación de actualizaciones automáticas."""
+        check_for_updates()
 
     def _on_about(self):
         """Abre la ventana informativa Acerca de / About."""
