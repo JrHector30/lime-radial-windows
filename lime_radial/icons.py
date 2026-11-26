@@ -89,6 +89,23 @@ def draw_minimal_icon(painter: QPainter, icon_name: str, center: QPointF, size: 
         p.addRoundedRect(QRectF(cx + 1.5, cy - h, w * 2, h * 2), 1.5, 1.5)
         painter.drawPath(p)
 
+    elif name in ("FLATTEN PDF", "FLATTEN"):
+        # Capas comprimidas en una sola hoja plana
+        d = hs * 0.78
+        p = QPainterPath()
+        # Capa superior
+        p.moveTo(cx - d + 2, cy - d + 2)
+        p.lineTo(cx + d - 2, cy - d + 2)
+        # Flecha hacia abajo (aplanar)
+        p.moveTo(cx, cy - d + 4)
+        p.lineTo(cx, cy + 2)
+        p.moveTo(cx - 3, cy - 1)
+        p.lineTo(cx, cy + 2)
+        p.lineTo(cx + 3, cy - 1)
+        # Base sólida plana inferior
+        p.addRoundedRect(QRectF(cx - d, cy + 3.5, d * 2, hs * 0.45), 1.5, 1.5)
+        painter.drawPath(p)
+
     elif name in ("CREATE PDF", "PDF"):
         # Documento con esquina doblada o signo más
         w, h = hs * 0.7, hs * 0.9
