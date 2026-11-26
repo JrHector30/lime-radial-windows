@@ -11,8 +11,17 @@ Sin abrir páginas web, sin ventanas pesadas ni confirmaciones molestas: simplem
 
 ## ✨ Características Principales
 
-- 🎯 **Gesto Universal Shift + Drag Inteligente**: Funciona en cualquier parte de Windows (Escritorio, Explorador de archivos, etc.). **Protegido contra falsos positivos**: únicamente se despliega al arrastrar archivos reales seleccionados; ignora clics en zonas vacías del escritorio o carpetas (permitiendo dibujar rectángulos de selección libremente).
-- 🔄 **Actualizador Automático Integrado**: Opción en el menú de la bandeja (*Buscar actualizaciones...*) que verifica nuevas versiones en GitHub Releases, descarga el instalador y actualiza la aplicación silenciosamente en un solo clic.
+- 🎨 **Nuevo Motor de Temas y Modos Claro / Oscuro**:
+  - Selector en la bandeja con 4 familias de diseño inspiradas en cítricos: **Lima Escarchada / Gajos Nocturnos**, **Naranja Jugosa**, **Pulpa Acrílica** y **Clásico**.
+  - Acabado con halo exterior translúcido, anillo albedo punteado (pith ring), nervaduras de pulpa radiantes y gajos con esquinas Bezier orgánicas.
+- 🇪🇸 **100% en Español**: Todas las acciones, herramientas (`DIVIDIR PDF`, `APLANAR PDF`, `CREAR PDF`, `COMPRIMIR`, `RECORTAR`), cápsula central (`A DOCX`, `A PDF`, `A PNG`) y menús traducidos al español.
+- 🎯 **Gesto Universal Shift + Drag Inteligente**: Funciona en cualquier parte de Windows. **Protegido contra falsos positivos**: únicamente se despliega al arrastrar archivos reales; ignora carpetas y clics en zonas vacías (permitiendo dibujar rectángulos de selección libremente).
+- 📑 **Compatibilidad Universal Office ➔ PDF**:
+  - Al soltar un Excel (`.xlsx`, `.xls`), PowerPoint (`.pptx`, `.ppt`) o Word (`.docx`, `.doc`) sobre **CREAR PDF**, se exporta directamente a PDF.
+  - Al soltarlo sobre **DIVIDIR PDF**, se convierte a PDF y se divide automáticamente en hojas/páginas PDF individuales en la misma carpeta.
+  - Al soltarlo sobre **APLANAR PDF**, se convierte a PDF rasterizado de alta resolución sin texto ni campos editables.
+  - Al soltarlo sobre **COMPRIMIR**, se genera el PDF optimizado.
+- 🔄 **Actualizador Automático Integrado**: Ventana Glassmorphic con mosaico cítrico y botón *Buscar actualizaciones...* que verifica GitHub Releases, descarga el instalador y actualiza la aplicación silenciosamente en un solo clic.
 - 📑 **Dividir PDF en Páginas (Split PDF)**:
   - Al soltar un archivo PDF en **SPLIT PDF**, se divide instantáneamente en archivos individuales (`_p1.pdf`, `_p2.pdf`, ...) en la misma carpeta.
   - **100% Sin Pérdida**: Conserva íntegramente vectores, fuentes incrustadas, compresión y metadatos sin alterar el contenido.

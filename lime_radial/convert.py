@@ -86,7 +86,7 @@ SPREADSHEET_EXTENSIONS = {".xlsx", ".xls", ".numbers", ".csv", ".tsv", ".ods"}
 IMAGE_FORMATS = ["JPG", "PNG", "WebP", "HEIC", "TIFF", "AVIF", "BMP", "PDF"]
 AUDIO_FORMATS = ["MP3", "M4A", "WAV", "FLAC", "OGG", "Opus", "AIFF", "WMA"]
 VIDEO_FORMATS = ["MP4", "MOV", "MKV", "WebM", "AVI", "WMV", "GIF", "MP3"]
-PDF_FORMATS = ["SPLIT PDF", "FLATTEN PDF", "DOCX", "PAGES", "PPTX", "XLSX", "JPG", "PNG", "EPUB", "TXT", "MD"]
+PDF_FORMATS = ["DIVIDIR PDF", "APLANAR PDF", "DOCX", "PAGES", "PPTX", "XLSX", "JPG", "PNG", "EPUB", "TXT", "MD"]
 DOCUMENT_FORMATS = ["PAGES", "Markdown", "TXT", "EPUB", "PDF", "HTML", "JPG", "PNG"]
 SLIDE_FORMATS = ["PDF", "JPG", "PNG", "TXT", "MD"]
 SPREADSHEET_FORMATS = ["CSV", "TSV", "PDF", "HTML", "TXT", "MD"]
@@ -419,7 +419,7 @@ def convert_document(source_file: str | Path, target_format: str) -> List[Path]:
                     writer.writerow(line.split(","))
         outputs.append(out)
 
-    elif fmt == "PDF":
+    elif fmt in ("PDF", "CREAR PDF", "CREATE PDF"):
         out_pdf = get_unique_output_path(src, ".pdf")
         if not convert_office_to_pdf_native(src, out_pdf):
             if PYMUPDF_SUPPORTED:
@@ -429,6 +429,58 @@ def convert_document(source_file: str | Path, target_format: str) -> List[Path]:
                 page.insert_textbox(rect, txt[:15000], fontsize=11, fontname="helv")
                 doc.save(str(out_pdf))
                 doc.close()
+        outputs.append(out_pdf)
+
+    elif fmt in ("DIVIDIR PDF", "SPLIT PDF", "DIVIDIR", "SPLIT"):
+        out_pdf = src.parent / f"_temp_split_{src.stem}.pdf"
+        if not convert_office_to_pdf_native(src, out_pdf):
+            if PYMUPDF_SUPPORTED:
+                doc = fitz.open()
+                page = doc.new_page(width=595, height=842)
+                rect = fitz.Rect(50, 50, 545, 792)
+                page.insert_textbox(rect, txt[:15000], fontsize=11, fontname="helv")
+                doc.save(str(out_pdf))
+                doc.close()
+        if out_pdf.exists():
+            outputs = split_pdf(out_pdf)
+            try:
+                out_pdf.unlink()
+            except Exception:
+                pass
+            return outputs
+
+    elif fmt in ("APLANAR PDF", "FLATTEN PDF", "APLANAR", "FLATTEN"):
+        out_pdf = src.parent / f"_temp_flat_{src.stem}.pdf"
+        if not convert_office_to_pdf_native(src, out_pdf):
+            if PYMUPDF_SUPPORTED:
+                doc = fitz.open()
+                page = doc.new_page(width=595, height=842)
+                rect = fitz.Rect(50, 50, 545, 792)
+                page.insert_textbox(rect, txt[:15000], fontsize=11, fontname="helv")
+                doc.save(str(out_pdf))
+                doc.close()
+        if out_pdf.exists():
+            out_flat = flatten_pdf(out_pdf)
+            try:
+                out_pdf.unlink()
+            except Exception:
+                pass
+            return [out_flat]
+
+    elif fmt in ("COMPRIMIR", "COMPRESS"):
+        out_pdf = get_unique_output_path(src, ".pdf")
+        if not convert_office_to_pdf_native(src, out_pdf):
+            if PYMUPDF_SUPPORTED:
+                doc = fitz.open()
+                page = doc.new_page(width=595, height=842)
+                rect = fitz.Rect(50, 50, 545, 792)
+                page.insert_textbox(rect, txt[:15000], fontsize=11, fontname="helv")
+                doc.save(str(out_pdf))
+                doc.close()
+        if out_pdf.exists() and PYMUPDF_SUPPORTED:
+            doc = fitz.open(out_pdf)
+            doc.save(str(out_pdf), garbage=4, deflate=True, clean=True)
+            doc.close()
         outputs.append(out_pdf)
 
     elif fmt in ("JPG", "JPEG", "PNG"):
@@ -644,6 +696,14 @@ def convert_pdf(source_file: str | Path, target_format: str) -> List[Path]:
     # Opción de aplanar el PDF (solo imagen por página, sin texto ni metadatos)
     if fmt in ("FLATTEN", "FLATTEN PDF", "APLANAR", "APLANAR PDF"):
         return [flatten_pdf(source_path)]
+
+    # Opción de comprimir PDF optimizando streams y purgando metadatos
+    if fmt in ("COMPRESS", "COMPRIMIR"):
+        out_comp = get_unique_output_path(source_path, ".pdf")
+        doc = fitz.open(source_path)
+        doc.save(str(out_comp), garbage=4, deflate=True, clean=True)
+        doc.close()
+        return [out_comp]
 
     doc = fitz.open(source_path)
     outputs = []

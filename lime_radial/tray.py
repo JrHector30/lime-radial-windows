@@ -26,6 +26,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
+from .themes import ThemeManager
+
 REG_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 REG_APP_NAME = "LimeRadial"
 
@@ -146,6 +148,53 @@ class LimeTray(QSystemTrayIcon):
             act.triggered.connect(lambda checked, k=key_name: self.on_change_key(k))
             group.addAction(act)
             key_menu.addAction(act)
+
+        # Submenú de Temas (Claro/Oscuro + Variantes de color)
+        theme_mgr = ThemeManager.get_instance()
+        themes_menu = menu.addMenu("🎨 Temas")
+
+        # Modos de Apariencia
+        mode_group = QActionGroup(self)
+        light_act = QAction("☀️ Claro", self, checkable=True)
+        light_act.setChecked(theme_mgr.current_mode == "light")
+        light_act.triggered.connect(lambda: theme_mgr.set_mode("light"))
+        mode_group.addAction(light_act)
+        themes_menu.addAction(light_act)
+
+        dark_act = QAction("🌙 Oscuro", self, checkable=True)
+        dark_act.setChecked(theme_mgr.current_mode == "dark")
+        dark_act.triggered.connect(lambda: theme_mgr.set_mode("dark"))
+        mode_group.addAction(dark_act)
+        themes_menu.addAction(dark_act)
+
+        themes_menu.addSeparator()
+
+        # Familias de color
+        family_group = QActionGroup(self)
+        lime_name = "🟢 Lima Escarchada" if theme_mgr.current_mode == "light" else "🟢 Gajos Nocturnos"
+        lime_act = QAction(lime_name, self, checkable=True)
+        lime_act.setChecked(theme_mgr.current_family == "lime")
+        lime_act.triggered.connect(lambda: theme_mgr.set_family("lime"))
+        family_group.addAction(lime_act)
+        themes_menu.addAction(lime_act)
+
+        tangerine_act = QAction("🟠 Naranja Jugosa", self, checkable=True)
+        tangerine_act.setChecked(theme_mgr.current_family == "tangerine")
+        tangerine_act.triggered.connect(lambda: theme_mgr.set_family("tangerine"))
+        family_group.addAction(tangerine_act)
+        themes_menu.addAction(tangerine_act)
+
+        acrylic_act = QAction("🔴 Pulpa Acrílica", self, checkable=True)
+        acrylic_act.setChecked(theme_mgr.current_family == "acrylic")
+        acrylic_act.triggered.connect(lambda: theme_mgr.set_family("acrylic"))
+        family_group.addAction(acrylic_act)
+        themes_menu.addAction(acrylic_act)
+
+        classic_act = QAction("⚪ Clásico", self, checkable=True)
+        classic_act.setChecked(theme_mgr.current_family == "classic")
+        classic_act.triggered.connect(lambda: theme_mgr.set_family("classic"))
+        family_group.addAction(classic_act)
+        themes_menu.addAction(classic_act)
 
         menu.addSeparator()
 

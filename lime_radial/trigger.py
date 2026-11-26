@@ -154,7 +154,10 @@ class DragShiftWatcher(QObject):
                     desktop = sw.FindWindowSW(0, 0, 8, 0, 1)  # SWC_DESKTOP=8, SWFO_NEEDDISPATCH=1
                     if desktop:
                         items = desktop.Document.SelectedItems()
-                        return [item.Path for item in items if hasattr(item, "Path") and os.path.exists(item.Path)]
+                        return [
+                            item.Path for item in items
+                            if hasattr(item, "Path") and os.path.isfile(item.Path)
+                        ]
                 except Exception:
                     pass
                 return []
@@ -166,11 +169,17 @@ class DragShiftWatcher(QObject):
                     try:
                         if w.HWND == root_hwnd or w.HWND == hwnd:
                             items = w.Document.SelectedItems()
-                            return [item.Path for item in items if hasattr(item, "Path") and os.path.exists(item.Path)]
+                            return [
+                                item.Path for item in items
+                                if hasattr(item, "Path") and os.path.isfile(item.Path)
+                            ]
                         self._user32.GetWindowRect(w.HWND, ctypes.byref(rect))
                         if rect[0] <= pos.x() <= rect[2] and rect[1] <= pos.y() <= rect[3]:
                             items = w.Document.SelectedItems()
-                            return [item.Path for item in items if hasattr(item, "Path") and os.path.exists(item.Path)]
+                            return [
+                                item.Path for item in items
+                                if hasattr(item, "Path") and os.path.isfile(item.Path)
+                            ]
                     except Exception:
                         pass
                 return []
@@ -209,20 +218,18 @@ class DragShiftWatcher(QObject):
 
                 moved = (pos - self._down_at).manhattanLength() >= DRAG_THRESHOLD
 
-                # SÓLO se dispara si empezó en el explorador/escritorio o hay drag activo
-                is_valid_context = self._down_in_explorer or (self._user32 and self._user32.FindWindowW("SysDragImage", None) != 0)
-
-                if moved and trigger and is_valid_context and not self._fired:
+                # SÓLO se dispara si empezó en el explorador/escritorio
+                if moved and trigger and self._down_in_explorer and not self._fired:
                     self._fired = True
-                    # Comprobar si realmente hay archivos seleccionados bajo el cursor
+                    # Comprobar si realmente hay ARCHIVOS seleccionados bajo el cursor (NUNCA carpetas)
                     files = self._get_selected_files_at_cursor(self._down_at or pos)
-                    has_sys_drag = bool(self._user32 and self._user32.FindWindowW("SysDragImage", None) != 0)
+                    real_files = [f for f in files if os.path.isfile(f)]
 
-                    # Si NO hay archivos seleccionados (clic en carpeta vacía o escritorio vacío), NO mostrar el menú
-                    if files or has_sys_drag:
+                    # Si NO hay archivos seleccionados o solo se seleccionaron carpetas, NO mostrar el menú
+                    if real_files:
                         self._idle_ticks = 0
                         self._shown_at = pos
-                        self.show_menu.emit(pos, files)
+                        self.show_menu.emit(pos, real_files)
             else:
                 self._down_at = None
                 self._down_in_explorer = False

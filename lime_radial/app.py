@@ -107,45 +107,52 @@ class LimeApp(QObject):
         self.thread_pool.start(task)
 
     def _on_tool_triggered(self, tool_name: str, paths: List[str]):
-        """Manejo de herramientas avanzadas interactivas y automáticas."""
+        """Manejo de herramientas avanzadas interactivas y automáticas en Español e Inglés."""
         name = tool_name.upper().replace("TO ", "").strip()
 
-        if name == "CROP" and paths:
+        if name in ("CROP", "RECORTAR") and paths:
             dialog = CropImageDialog(paths[0])
             dialog.exec()
 
-        elif name == "EDIT" and paths:
+        elif name in ("EDIT", "EDITAR") and paths:
             dialog = EditImageDialog(paths[0])
             dialog.exec()
 
-        elif name in ("ADD BG", "ADDBG", "BACKGROUND") and paths:
+        elif name in ("ADD BG", "ADDBG", "BACKGROUND", "AÑADIR FONDO", "FONDO") and paths:
             dialog = AddBgDialog(paths[0])
             dialog.exec()
 
-        elif name == "REDACT" and paths:
+        elif name in ("REDACT", "CENSURAR") and paths:
             dialog = RedactImageDialog(paths[0])
             dialog.exec()
 
-        elif name == "ANNOTATE" and paths:
+        elif name in ("ANNOTATE", "ANOTAR") and paths:
             dialog = AnnotateImageDialog(paths[0])
             dialog.exec()
 
-        elif name == "COMPRESS":
-            task = ActionTask(execute_compress, paths)
+        elif name in ("COMPRESS", "COMPRIMIR"):
+            task = ActionTask(convert_files, paths, "COMPRIMIR")
             self.thread_pool.start(task)
 
-        elif name == "CREATE PDF":
-            task = ActionTask(execute_create_pdf, paths)
+        elif name in ("CREATE PDF", "CREAR PDF", "PDF"):
+            task = ActionTask(convert_files, paths, "CREAR PDF")
+            self.thread_pool.start(task)
+
+        elif name in ("DIVIDIR PDF", "SPLIT PDF", "DIVIDIR", "SPLIT"):
+            task = ActionTask(convert_files, paths, "DIVIDIR PDF")
+            self.thread_pool.start(task)
+
+        elif name in ("APLANAR PDF", "FLATTEN PDF", "APLANAR", "FLATTEN"):
+            task = ActionTask(convert_files, paths, "APLANAR PDF")
             self.thread_pool.start(task)
 
         elif name == "COLLAGE":
             task = ActionTask(execute_collage, paths)
             self.thread_pool.start(task)
 
-        elif name == "METADATA":
+        elif name in ("METADATA", "METADATOS"):
             task = ActionTask(execute_metadata_strip, paths)
             self.thread_pool.start(task)
-
         else:
             task = ActionTask(convert_files, paths, tool_name)
             self.thread_pool.start(task)

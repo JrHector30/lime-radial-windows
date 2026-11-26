@@ -41,10 +41,11 @@ from PySide6.QtWidgets import QWidget
 
 from .convert import get_available_formats
 from .icons import FONT_FAMILY, draw_minimal_icon, load_custom_fonts
+from .themes import ThemeManager, parse_qcolor
 
-# Sub-anillos de herramientas según contexto
-PDF_TOOLS_ITEMS = ["SPLIT PDF", "FLATTEN PDF", "COMPRESS", "CROP", "CREATE PDF", "COLLAGE"]
-IMAGE_TOOLS_ITEMS = ["COMPRESS", "METADATA", "EDIT", "ANNOTATE", "ADD BG", "CROP", "REDACT"]
+# Sub-anillos de herramientas según contexto (100% en Español)
+PDF_TOOLS_ITEMS = ["DIVIDIR PDF", "APLANAR PDF", "COMPRIMIR", "RECORTAR", "CREAR PDF", "COLLAGE"]
+IMAGE_TOOLS_ITEMS = ["COMPRIMIR", "METADATOS", "EDITAR", "ANOTAR", "AÑADIR FONDO", "RECORTAR", "CENSURAR"]
 
 
 def clock_to_cartesian(cx: float, cy: float, radius: float, clock_deg: float) -> QPointF:
@@ -197,6 +198,9 @@ class RadialMenu(QWidget):
         self._anim.setEndValue(1.0)
         self._anim.setEasingCurve(QEasingCurve.OutBack)
         self._anim.valueChanged.connect(self._on_scale_anim)
+
+        # Conectar al gestor de temas dinámico
+        ThemeManager.get_instance().add_listener(lambda t: self.update())
 
         self._update_radii()
 
@@ -418,7 +422,7 @@ class RadialMenu(QWidget):
         else:
             self.close_menu()
 
-    # ------------------ Renderizado Glassmorphic y Pétalos Redondeados ------------------
+    # ------------------ Renderizado Glassmorphic y Pétalos Redondeados con Temas ------------------
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
@@ -432,46 +436,43 @@ class RadialMenu(QWidget):
         painter.scale(self.scale_factor, self.scale_factor)
         painter.translate(-cx, -cy)
 
+        theme = ThemeManager.get_instance().get_theme()
+
         # 1. Sombra suave circular exterior
         shadow_rect = QRectF(cx - self.radius + 8, cy - self.radius + 8, (self.radius - 8) * 2, (self.radius - 8) * 2)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 85))
+        painter.setBrush(QColor(0, 0, 0, 95))
         painter.drawEllipse(shadow_rect)
 
-        # 2. Anillo exterior fino translúcido (Specular Rim Light)
-        rim_path = QPainterPath()
-        rim_path.addEllipse(QPointF(cx, cy), self.outer_ring_outer_r, self.outer_ring_outer_r)
-        rim_inner = QPainterPath()
-        rim_inner.addEllipse(QPointF(cx, cy), self.outer_ring_inner_r, self.outer_ring_inner_r)
-        rim_shape = rim_path.subtracted(rim_inner)
+        # 2. Halo de fondo / Backdrop exterior con color de cáscara del tema
+        backdrop_r = self.outer_ring_outer_r
+        backdrop_rect = QRectF(cx - backdrop_r, cy - backdrop_r, backdrop_r * 2, backdrop_r * 2)
+        
+        painter.setBrush(QBrush(parse_qcolor(theme.backdrop_fill)))
+        painter.setPen(QPen(parse_qcolor(theme.backdrop_stroke), theme.backdrop_stroke_width))
+        painter.drawEllipse(backdrop_rect)
 
-        rim_grad = QLinearGradient(cx - self.radius, cy - self.radius, cx + self.radius, cy + self.radius)
-        rim_grad.setColorAt(0.0, QColor(255, 255, 255, 140))
-        rim_grad.setColorAt(0.5, QColor(255, 140, 40, 50))
-        rim_grad.setColorAt(1.0, QColor(20, 25, 30, 40))
-        painter.setBrush(QBrush(rim_grad))
-        painter.drawPath(rim_shape)
+        # 2.1 Anillo interno punteado de albedo / pulpa (Pith Ring) si el tema lo define
+        if theme.pith_ring_stroke:
+            pith_r = backdrop_r - 6.0
+            pith_pen = QPen(parse_qcolor(theme.pith_ring_stroke), 1.0, Qt.CustomDashLine)
+            pith_pen.setDashPattern([3, 3])
+            painter.setPen(pith_pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawEllipse(QRectF(cx - pith_r, cy - pith_r, pith_r * 2, pith_r * 2))
 
-        # 3. Pétalos redondeados (Rounded Petals con Glassmorphism)
+        # 3. Pétalos redondeados (Rounded Wedges)
         n = len(self.formats)
         slice_deg = 360.0 / n if n > 0 else 360.0
-        gap_deg = 4.2 if n <= 6 else (3.6 if n <= 8 else 2.8)
-        corner_r = 15.0 if n <= 6 else (13.5 if n <= 8 else 10.5)
+        gap_deg = theme.half_gap * 1.3
+        corner_out = theme.wedge_corner_out
+        corner_in = theme.wedge_corner_in
 
         # Tipografía Plus Jakarta Sans
-        font_size = 9.0 if n >= 10 else (10.0 if n >= 6 else 11.0)
+        font_size = 8.5 if n >= 10 else (9.5 if n >= 6 else 11.0)
         label_font = QFont(FONT_FAMILY, int(font_size), QFont.Bold)
-        label_font.setLetterSpacing(QFont.AbsoluteSpacing, 0.3)
+        label_font.setLetterSpacing(QFont.AbsoluteSpacing, 0.25)
         painter.setFont(label_font)
-
-        # Paleta de color Glassmorphic moderna idéntica a Image 3
-        COLOR_PETAL_BG = QColor(244, 246, 249, 238)          # Vidrio esmerilado claro de alta fidelidad
-        COLOR_PETAL_BORDER = QColor(255, 255, 255, 220)       # Reflejo especular blanco
-        COLOR_PETAL_TEXT = QColor(28, 33, 41)                 # Texto grafito nítido
-        COLOR_ACTIVE_GRAD_TOP = QColor(255, 106, 0)           # Tangerine Orange vibrante
-        COLOR_ACTIVE_GRAD_BOT = QColor(255, 62, 0)
-        COLOR_ACTIVE_BORDER = QColor(255, 185, 110, 240)      # Borde iluminado
-        COLOR_ACTIVE_TEXT = QColor(255, 255, 255)
 
         for i, raw_label in enumerate(self.formats):
             is_active = (self.hover_index == i)
@@ -479,8 +480,9 @@ class RadialMenu(QWidget):
             clock_mid_deg = i * slice_deg
             clock_span_deg = slice_deg - gap_deg
 
-            # Expansión sutil táctil al pasar el cursor (+3px)
-            r_out = self.wedge_outer_r + (3.0 if is_active else 0.0)
+            # Escala activa táctil del tema
+            scale_mult = theme.active_scale if is_active else 1.0
+            r_out = (self.wedge_outer_r + (3.0 if is_active else 0.0)) * scale_mult
             r_in = self.wedge_inner_r
 
             petal_path = make_rounded_petal(
@@ -488,28 +490,55 @@ class RadialMenu(QWidget):
                 r_in, r_out,
                 clock_mid_deg,
                 clock_span_deg,
-                corner_r,
+                corner_out if is_active else corner_in,
             )
 
             if is_active:
-                active_grad = QLinearGradient(cx, cy - r_out, cx, cy + r_out)
-                active_grad.setColorAt(0.0, COLOR_ACTIVE_GRAD_TOP)
-                active_grad.setColorAt(1.0, COLOR_ACTIVE_GRAD_BOT)
-                painter.setBrush(QBrush(active_grad))
-                painter.setPen(QPen(COLOR_ACTIVE_BORDER, 1.8))
+                if len(theme.wedge_active_colors) >= 2:
+                    active_grad = QLinearGradient(cx, cy - r_out, cx, cy + r_out)
+                    active_grad.setColorAt(0.0, parse_qcolor(theme.wedge_active_colors[0]))
+                    active_grad.setColorAt(1.0, parse_qcolor(theme.wedge_active_colors[-1]))
+                    painter.setBrush(QBrush(active_grad))
+                else:
+                    painter.setBrush(QBrush(parse_qcolor(theme.wedge_active_colors[0])))
+                painter.setPen(QPen(parse_qcolor(theme.wedge_active_stroke), 1.6))
             else:
-                painter.setBrush(QBrush(COLOR_PETAL_BG))
-                painter.setPen(QPen(COLOR_PETAL_BORDER, 1.2))
+                painter.setBrush(QBrush(parse_qcolor(theme.wedge_fill)))
+                painter.setPen(QPen(parse_qcolor(theme.wedge_stroke), theme.wedge_stroke_width))
 
             painter.drawPath(petal_path)
+
+            # Nervaduras / Pulp Veins sutiles si el tema las tiene habilitadas
+            if theme.show_pulp_veins:
+                rad_mid = math.radians(clock_mid_deg)
+                for vein_offset in (-0.075, 0.075):
+                    v_rad = rad_mid + vein_offset
+                    v_p1 = QPointF(cx + (r_out - 22) * math.sin(v_rad), cy - (r_out - 22) * math.cos(v_rad))
+                    v_p2 = QPointF(cx + (r_out - 8) * math.sin(v_rad), cy - (r_out - 8) * math.cos(v_rad))
+                    vein_color = QColor(255, 255, 255, 65) if is_active else QColor(120, 120, 120, 30)
+                    painter.setPen(QPen(vein_color, 1.0, Qt.SolidLine, Qt.RoundCap))
+                    painter.drawLine(v_p1, v_p2)
 
             # Posición del texto/icono en el pétalo
             label_radius = (r_in + r_out) / 2
             label_pos = clock_to_cartesian(cx, cy, label_radius, clock_mid_deg)
 
             has_icon = raw_label.upper() in (
-                "SPLIT PDF", "SPLIT", "FLATTEN PDF", "FLATTEN", "COMPRESS", "CROP", "CREATE PDF", "COLLAGE", "METADATA", "EDIT", "ANNOTATE", "ADD BG", "REDACT"
+                "SPLIT PDF", "SPLIT", "DIVIDIR", "DIVIDIR PDF",
+                "FLATTEN PDF", "FLATTEN", "APLANAR", "APLANAR PDF",
+                "COMPRESS", "COMPRIMIR",
+                "CROP", "RECORTAR",
+                "CREATE PDF", "CREAR PDF", "PDF",
+                "COLLAGE",
+                "METADATA", "METADATOS",
+                "EDIT", "EDITAR",
+                "ANNOTATE", "ANOTAR",
+                "ADD BG", "ADDBG", "AÑADIR FONDO",
+                "REDACT", "CENSURAR"
             )
+
+            text_color = parse_qcolor(theme.wedge_active_text) if is_active else parse_qcolor(theme.wedge_text)
+            icon_color = parse_qcolor(theme.wedge_active_icon) if is_active else parse_qcolor(theme.wedge_icon)
 
             if has_icon:
                 icon_center = QPointF(label_pos.x(), label_pos.y() - 7)
@@ -518,10 +547,10 @@ class RadialMenu(QWidget):
                     raw_label,
                     icon_center,
                     size=16.0,
-                    color=COLOR_ACTIVE_TEXT if is_active else COLOR_PETAL_TEXT,
+                    color=icon_color,
                 )
                 text_rect = QRectF(label_pos.x() - 42, label_pos.y() + 3, 84, 16)
-                painter.setPen(COLOR_ACTIVE_TEXT if is_active else COLOR_PETAL_TEXT)
+                painter.setPen(text_color)
                 sub_font = QFont(FONT_FAMILY, 8, QFont.Bold)
                 painter.setFont(sub_font)
                 painter.drawText(text_rect, Qt.AlignCenter, raw_label)
@@ -531,77 +560,93 @@ class RadialMenu(QWidget):
                 box_w = 74 if n >= 10 else 82
                 box_h = 28
                 text_rect = QRectF(label_pos.x() - box_w / 2, label_pos.y() - box_h / 2, box_w, box_h)
-                painter.setPen(COLOR_ACTIVE_TEXT if is_active else COLOR_PETAL_TEXT)
+                painter.setPen(text_color)
                 painter.drawText(text_rect, Qt.AlignCenter, display_text)
 
         # 4. Cápsula Central Flotante (Floating Glass Pill)
-        # Muestra dinámicamente la acción ('Convert to BMP', 'Redact Photo') o el peso/archivos
-        pill_w, pill_h = 130.0, 36.0
+        pill_w, pill_h = 130.0, 37.0
         pill_rect = QRectF(cx - pill_w / 2, cy - pill_h / 2, pill_w, pill_h)
 
         # Sombra sutil de la cápsula
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 35))
-        painter.drawRoundedRect(pill_rect.translated(0, 2), 18, 18)
+        painter.setBrush(QColor(0, 0, 0, 40))
+        painter.drawRoundedRect(pill_rect.translated(0, 2), 18.5, 18.5)
 
-        # Fondo cápsula con cristal esmerilado puro
-        capsule_grad = QLinearGradient(pill_rect.topLeft(), pill_rect.bottomRight())
-        capsule_grad.setColorAt(0.0, QColor(255, 255, 255, 245))
-        capsule_grad.setColorAt(1.0, QColor(242, 245, 248, 245))
+        # Fondo cápsula según el tema
+        painter.setBrush(QBrush(parse_qcolor(theme.center_fill)))
+        painter.setPen(QPen(parse_qcolor(theme.center_stroke), 1.0))
+        painter.drawRoundedRect(pill_rect, 18.5, 18.5)
 
-        painter.setBrush(QBrush(capsule_grad))
-        painter.setPen(QPen(QColor(220, 226, 234, 220), 1.2))
-        painter.drawRoundedRect(pill_rect, 18, 18)
-
-        # Texto dentro de la cápsula central
+        # Texto dentro de la cápsula central (100% en Español)
         if 0 <= self.hover_index < len(self.formats):
             raw_active = self.formats[self.hover_index]
-            active_clean = raw_active.replace("To ", "").strip()
+            active_clean = raw_active.replace("A ", "").replace("To ", "").strip()
             
-            # Nombre de acción completo como en Tangerine Mac (Image 3)
             action_name_map = {
-                "BMP": "Convert to BMP",
-                "JPG": "Convert to JPG",
-                "JPEG": "Convert to JPEG",
-                "PNG": "Convert to PNG",
-                "WEBP": "Convert to WebP",
-                "HEIC": "Convert to HEIC",
-                "TIFF": "Convert to TIFF",
-                "AVIF": "Convert to AVIF",
-                "PDF": "PDF Tools" if self.current_ring_name == "main" else "Convert to PDF",
-                "SPLIT PDF": "Split into Pages",
-                "SPLIT": "Split into Pages",
-                "FLATTEN PDF": "Flatten PDF",
-                "FLATTEN": "Flatten PDF",
-                "REDACT": "Redact Photo",
-                "CROP": "Crop Image",
-                "EDIT": "Edit Image",
-                "ANNOTATE": "Annotate",
-                "ADD BG": "Add Background",
-                "METADATA": "Metadata",
-                "COMPRESS": "Compress File",
-                "CREATE PDF": "Create PDF",
-                "COLLAGE": "Photo Collage",
+                "BMP": "A BMP",
+                "JPG": "A JPG",
+                "JPEG": "A JPEG",
+                "PNG": "A PNG",
+                "WEBP": "A WebP",
+                "HEIC": "A HEIC",
+                "TIFF": "A TIFF",
+                "AVIF": "A AVIF",
+                "DOCX": "A DOCX",
+                "PAGES": "A PAGES",
+                "PPTX": "A PPTX",
+                "XLSX": "A XLSX",
+                "EPUB": "A EPUB",
+                "TXT": "A TXT",
+                "MD": "A MD",
+                "MARKDOWN": "A MD",
+                "HTML": "A HTML",
+                "CSV": "A CSV",
+                "TSV": "A TSV",
+                "PDF": "Herramientas PDF" if self.current_ring_name == "main" else "A PDF",
+                "DIVIDIR PDF": "Dividir en páginas",
+                "DIVIDIR": "Dividir en páginas",
+                "SPLIT PDF": "Dividir en páginas",
+                "SPLIT": "Dividir en páginas",
+                "APLANAR PDF": "Aplanar PDF",
+                "APLANAR": "Aplanar PDF",
+                "FLATTEN PDF": "Aplanar PDF",
+                "FLATTEN": "Aplanar PDF",
+                "CREAR PDF": "Crear PDF",
+                "CREATE PDF": "Crear PDF",
+                "COMPRIMIR": "Comprimir archivo",
+                "COMPRESS": "Comprimir archivo",
+                "RECORTAR": "Recortar imagen",
+                "CROP": "Recortar imagen",
+                "EDITAR": "Editar imagen",
+                "EDIT": "Editar imagen",
+                "ANOTAR": "Anotar imagen",
+                "ANNOTATE": "Anotar imagen",
+                "AÑADIR FONDO": "Añadir fondo",
+                "ADD BG": "Añadir fondo",
+                "CENSURAR": "Censurar foto",
+                "REDACT": "Censurar foto",
+                "METADATOS": "Eliminar metadatos",
+                "METADATA": "Eliminar metadatos",
+                "COLLAGE": "Collage de fotos",
             }
-            display_action = action_name_map.get(active_clean.upper(), f"To {active_clean}")
+            display_action = action_name_map.get(active_clean.upper(), f"A {active_clean}")
 
             capsule_font = QFont(FONT_FAMILY, 9, QFont.Bold)
             painter.setFont(capsule_font)
-            painter.setPen(QColor(26, 32, 40))
+            painter.setPen(parse_qcolor(theme.center_text))
             painter.drawText(pill_rect, Qt.AlignCenter, display_action)
         else:
-            # Mostrar tamaño o cantidad de archivos
             size_str = self._calculate_file_size()
             capsule_font = QFont(FONT_FAMILY, 10, QFont.Bold)
             painter.setFont(capsule_font)
-            painter.setPen(QColor(26, 32, 40))
+            painter.setPen(parse_qcolor(theme.center_text))
             painter.drawText(pill_rect, Qt.AlignCenter, size_str)
 
         painter.restore()
 
     def _calculate_file_size(self) -> str:
         if not self.file_paths:
-            return "1 file"
+            return "1 archivo"
             
         total_bytes = 0
         valid_count = 0
@@ -619,4 +664,4 @@ class RadialMenu(QWidget):
             return f"{total_bytes / (1024 * 1024):.1f} MB"
             
         count = len(self.file_paths)
-        return f"{count} file" if count == 1 else f"{count} files"
+        return f"{count} archivo" if count == 1 else f"{count} archivos"

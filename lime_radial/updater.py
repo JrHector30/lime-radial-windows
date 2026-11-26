@@ -1,7 +1,10 @@
 """
 Módulo de actualización automática para Lime Radial Windows.
-Permite verificar la última versión en GitHub Releases, descargar el instalador
-y actualizar automáticamente la aplicación en segundo plano.
+Diseñado con Glassmorphism auténtico basado en CheckForUpdatesModal.tsx:
+- Icono cítrico LimeFruitIcon en mosaico brillante
+- Verificación asíncrona en GitHub Releases
+- Descarga en segundo plano con barra de progreso
+- Instalación silenciosa y reinicio automático de Lime Radial
 """
 from __future__ import annotations
 
@@ -14,8 +17,16 @@ import urllib.request
 from pathlib import Path
 from typing import Optional, Tuple
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import QObject, QPointF, QRectF, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QRadialGradient,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -23,14 +34,13 @@ from PySide6.QtWidgets import (
     QLabel,
     QProgressBar,
     QPushButton,
-    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
 
-from .icons import FONT_FAMILY
+from .icons import FONT_FAMILY, draw_lime_fruit_icon
 
-CURRENT_VERSION = "1.1.3"
+CURRENT_VERSION = "1.1.4"
 GITHUB_REPO = "JrHector30/lime-radial-windows"
 RELEASES_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
@@ -115,51 +125,63 @@ class DownloadUpdateThread(QThread):
             self.error.emit(str(e))
 
 
+class LimeTileWidget(QWidget):
+    """Mosaico central redondeado con resplandor dorado y el icono LimeFruitIcon."""
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setFixedSize(64, 64)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        
+        # Resplandor suave de fondo
+        glow = QRadialGradient(32, 32, 32)
+        glow.setColorAt(0.0, QColor(250, 204, 21, 35))
+        glow.setColorAt(1.0, QColor(0, 0, 0, 0))
+        painter.fillRect(self.rect(), glow)
+
+        # Mosaico de vidrio
+        rect = QRectF(4, 4, 56, 56)
+        painter.setBrush(QColor(255, 255, 255, 12))
+        painter.setPen(QPen(QColor(255, 255, 255, 20), 1.0))
+        painter.drawRoundedRect(rect, 16, 16)
+
+        # Icono cítrico
+        draw_lime_fruit_icon(painter, QRectF(12, 12, 40, 40))
+
+
 class UpdateDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Lime Radial — Actualizaciones")
+        self.setWindowTitle("Buscar Actualizaciones")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.resize(460, 360)
+        self.resize(360, 360)
 
         self._download_url = ""
         self._new_version = ""
+        self._checking = False
 
-        # Layout raíz
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
+        root.setContentsMargins(10, 10, 10, 10)
 
         card = QWidget(self)
         card.setObjectName("updateCard")
         card.setStyleSheet(f"""
             QWidget#updateCard {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 rgba(36, 32, 28, 0.96),
-                    stop:1 rgba(22, 20, 18, 0.98));
-                border: 1.5px solid rgba(255, 255, 255, 0.22);
-                border-radius: 24px;
+                background-color: rgba(28, 29, 31, 0.96);
+                border: 1px solid rgba(255, 255, 255, 0.10);
+                border-radius: 22px;
             }}
             QLabel {{
-                color: #FFFFFF;
+                color: #F5F5F5;
                 font-family: "{FONT_FAMILY}";
-            }}
-            QPushButton {{
-                font-family: "{FONT_FAMILY}";
-                font-weight: bold;
-                border-radius: 10px;
-                padding: 8px 18px;
-                background-color: rgba(255, 255, 255, 0.15);
-                color: #FFFFFF;
-                border: 1px solid rgba(255, 255, 255, 0.25);
-            }}
-            QPushButton:hover {{
-                background-color: rgba(255, 255, 255, 0.25);
             }}
             QProgressBar {{
-                border: 1px solid rgba(255, 255, 255, 0.2);
+                border: 1px solid rgba(255, 255, 255, 0.18);
                 border-radius: 8px;
-                background-color: rgba(0, 0, 0, 0.35);
+                background-color: rgba(0, 0, 0, 0.4);
                 text-align: center;
                 color: #FFFFFF;
                 font-weight: bold;
@@ -171,144 +193,238 @@ class UpdateDialog(QDialog):
             }}
         """)
 
-        self.card_layout = QVBoxLayout(card)
-        self.card_layout.setContentsMargins(24, 20, 24, 20)
-        self.card_layout.setSpacing(12)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(20, 16, 20, 20)
+        card_layout.setSpacing(10)
 
-        # Barra superior con botón de cerrar
+        # 1. Barra superior: Título a la izquierda, botón circular de cierre a la derecha
         top_bar = QHBoxLayout()
+        top_title = QLabel("Buscar Actualizaciones")
+        top_title.setFont(QFont(FONT_FAMILY, 10))
+        top_title.setStyleSheet("color: #9CA3AF; font-weight: 500;")
+
         self.close_btn = QPushButton("✕")
-        self.close_btn.setFixedSize(28, 28)
+        self.close_btn.setFixedSize(26, 26)
+        self.close_btn.setCursor(Qt.PointingHandCursor)
         self.close_btn.setStyleSheet("""
             QPushButton {
-                background-color: rgba(255, 255, 255, 0.12);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                border-radius: 14px;
+                background-color: transparent;
+                border: none;
+                border-radius: 13px;
                 font-size: 12px;
                 font-weight: bold;
-                color: #FFFFFF;
+                color: #9CA3AF;
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.22);
+                background-color: rgba(255, 255, 255, 0.08);
+                color: #FFFFFF;
             }
         """)
         self.close_btn.clicked.connect(self.accept)
 
-        self.title_lbl = QLabel("Buscar Actualizaciones")
-        self.title_lbl.setFont(QFont(FONT_FAMILY, 12, QFont.Bold))
-        self.title_lbl.setAlignment(Qt.AlignCenter)
-
+        top_bar.addWidget(top_title)
+        top_bar.addStretch()
         top_bar.addWidget(self.close_btn)
-        top_bar.addWidget(self.title_lbl, 1)
-        top_bar.addSpacing(28)
-        self.card_layout.addLayout(top_bar)
+        card_layout.addLayout(top_bar)
 
-        # Icono central
-        self.icon_lbl = QLabel("🔄")
-        self.icon_lbl.setAlignment(Qt.AlignCenter)
-        self.icon_lbl.setStyleSheet("font-size: 40px; margin-top: 6px;")
-        self.card_layout.addWidget(self.icon_lbl)
+        card_layout.addSpacing(6)
 
-        # Mensaje de estado
-        self.status_lbl = QLabel("Comprobando actualizaciones en GitHub...")
-        self.status_lbl.setAlignment(Qt.AlignCenter)
-        self.status_lbl.setFont(QFont(FONT_FAMILY, 11, QFont.Bold))
-        self.status_lbl.setWordWrap(True)
-        self.card_layout.addWidget(self.status_lbl)
+        # 2. Mosaico central cítrico
+        tile_container = QHBoxLayout()
+        tile_container.addStretch()
+        self.tile_widget = LimeTileWidget()
+        tile_container.addWidget(self.tile_widget)
+        tile_container.addStretch()
+        card_layout.addLayout(tile_container)
 
-        # Detalles
-        self.detail_lbl = QLabel(f"Versión actual instalada: v{CURRENT_VERSION}")
-        self.detail_lbl.setAlignment(Qt.AlignCenter)
-        self.detail_lbl.setFont(QFont(FONT_FAMILY, 9))
-        self.detail_lbl.setStyleSheet("color: #84CC16; font-weight: bold;")
-        self.detail_lbl.setWordWrap(True)
-        self.card_layout.addWidget(self.detail_lbl)
+        card_layout.addSpacing(4)
 
-        # Barra de progreso (oculta inicialmente)
+        # 3. Título principal
+        self.main_title = QLabel("Comprobando actualizaciones…")
+        self.main_title.setAlignment(Qt.AlignCenter)
+        self.main_title.setFont(QFont(FONT_FAMILY, 13, QFont.Bold))
+        self.main_title.setStyleSheet("color: #F5F5F5; letter-spacing: -0.01em;")
+        card_layout.addWidget(self.main_title)
+
+        # 4. Badge de estado (Check verde con versión)
+        self.badge_lbl = QLabel(f"✓ Versión actual instalada: v{CURRENT_VERSION}")
+        self.badge_lbl.setAlignment(Qt.AlignCenter)
+        self.badge_lbl.setFont(QFont(FONT_FAMILY, 9, QFont.DemiBold))
+        self.badge_lbl.setStyleSheet("color: #A3E635;")
+        self.badge_lbl.setWordWrap(True)
+        card_layout.addWidget(self.badge_lbl)
+
+        # 5. Subtítulo / Descripción
+        self.desc_lbl = QLabel("Consultando el servidor oficial de GitHub Releases...")
+        self.desc_lbl.setAlignment(Qt.AlignCenter)
+        self.desc_lbl.setFont(QFont(FONT_FAMILY, 9))
+        self.desc_lbl.setStyleSheet("color: #8B929A;")
+        self.desc_lbl.setWordWrap(True)
+        card_layout.addWidget(self.desc_lbl)
+
+        # 6. Barra de progreso (para descarga de actualización)
         self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedHeight(18)
+        self.progress_bar.setFixedHeight(16)
         self.progress_bar.setVisible(False)
-        self.card_layout.addWidget(self.progress_bar)
+        card_layout.addWidget(self.progress_bar)
 
-        # Botones inferiores
+        card_layout.addSpacing(10)
+
+        # 7. Botones inferiores
         self.btn_layout = QHBoxLayout()
-        self.btn_layout.setSpacing(12)
+        self.btn_layout.setSpacing(10)
 
-        self.action_btn = QPushButton("Aceptar")
-        self.action_btn.setVisible(False)
-        self.action_btn.clicked.connect(self.accept)
-
-        self.update_btn = QPushButton("🚀 Actualizar ahora")
-        self.update_btn.setStyleSheet("""
+        # Botón secundario "Comprobar de nuevo" / "Más tarde"
+        self.sec_btn = QPushButton("🔄 Comprobar")
+        self.sec_btn.setFixedHeight(36)
+        self.sec_btn.setCursor(Qt.PointingHandCursor)
+        self.sec_btn.setStyleSheet("""
             QPushButton {
-                background-color: #84CC16;
-                color: #1A202C;
-                border: 1px solid #A3E635;
-                font-size: 12px;
-                font-weight: bold;
-                border-radius: 10px;
-                padding: 9px 18px;
+                background-color: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.10);
+                border-radius: 11px;
+                color: #A1A1AA;
+                font-family: 'Plus Jakarta Sans', sans-serif;
+                font-size: 11.5px;
+                font-weight: 600;
+                padding: 0 14px;
             }
             QPushButton:hover {
-                background-color: #A3E635;
+                background-color: rgba(255, 255, 255, 0.10);
+                color: #FFFFFF;
             }
         """)
-        self.update_btn.setVisible(False)
-        self.update_btn.clicked.connect(self._start_download)
+        self.sec_btn.clicked.connect(self._recheck)
 
-        self.btn_layout.addWidget(self.action_btn)
-        self.btn_layout.addWidget(self.update_btn)
-        self.card_layout.addLayout(self.btn_layout)
+        # Botón primario "Entendido" / "Actualizar ahora"
+        self.prim_btn = QPushButton("Entendido")
+        self.prim_btn.setFixedHeight(36)
+        self.prim_btn.setCursor(Qt.PointingHandCursor)
+        self.prim_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #F3F4F6;
+                color: #141517;
+                border: none;
+                border-radius: 11px;
+                font-family: 'Plus Jakarta Sans', sans-serif;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 0 18px;
+            }
+            QPushButton:hover {
+                background-color: #FFFFFF;
+            }
+        """)
+        self.prim_btn.clicked.connect(self.accept)
+
+        self.btn_layout.addWidget(self.sec_btn)
+        self.btn_layout.addWidget(self.prim_btn)
+        card_layout.addLayout(self.btn_layout)
 
         root.addWidget(card)
 
-        # Iniciar verificación en hilo secundario
+        # Disparar verificación inicial
+        self._start_check()
+
+    def _start_check(self):
+        self._checking = True
+        self.main_title.setText("Buscando actualizaciones…")
+        self.badge_lbl.setText("Conectando con GitHub Releases...")
+        self.badge_lbl.setStyleSheet("color: #9CA3AF;")
+        self.desc_lbl.setText("Comprobando si hay nuevas versiones disponibles.")
+        self.sec_btn.setEnabled(False)
+
         self._check_thread = CheckUpdateThread(self)
         self._check_thread.finished_check.connect(self._on_check_finished)
         self._check_thread.error_occurred.connect(self._on_check_error)
         self._check_thread.start()
 
+    def _recheck(self):
+        if self._checking:
+            return
+        self._start_check()
+
     def _on_check_finished(self, has_update: bool, tag: str, url: str, notes: str, size: int):
+        self._checking = False
+        self.sec_btn.setEnabled(True)
+
         if has_update and url:
             self._download_url = url
             self._new_version = tag
-            self.icon_lbl.setText("🚀")
-            self.status_lbl.setText(f"¡Nueva versión {tag} disponible!")
+            self.main_title.setText(f"¡Nueva versión {tag} disponible!")
             
             size_mb = size / (1024 * 1024) if size > 0 else 0
             size_txt = f" ({size_mb:.1f} MB)" if size_mb > 0 else ""
-            self.detail_lbl.setText(f"Tu versión: v{CURRENT_VERSION}  ➔  Nueva: {tag}{size_txt}\nLa actualización se descargará e instalará automáticamente.")
+            self.badge_lbl.setText(f"Tu versión: v{CURRENT_VERSION}  ➔  Nueva: {tag}{size_txt}")
+            self.badge_lbl.setStyleSheet("color: #A3E635; font-weight: bold;")
+            self.desc_lbl.setText("La actualización se descargará e instalará automáticamente.")
             
-            self.action_btn.setText("Más tarde")
-            self.action_btn.setVisible(True)
-            self.update_btn.setVisible(True)
+            self.sec_btn.setText("Más tarde")
+            self.prim_btn.setText("🚀 Actualizar ahora")
+            self.prim_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #84CC16;
+                    color: #1A202C;
+                    border: 1px solid #A3E635;
+                    border-radius: 11px;
+                    font-size: 12px;
+                    font-weight: 700;
+                    padding: 0 18px;
+                }
+                QPushButton:hover {
+                    background-color: #A3E635;
+                }
+            """)
+            self.prim_btn.clicked.disconnect()
+            self.prim_btn.clicked.connect(self._start_download)
         else:
-            self.icon_lbl.setText("🍋")
-            self.status_lbl.setText("Lime Radial está actualizado")
-            self.detail_lbl.setText(f"Ya tienes la versión más reciente (v{CURRENT_VERSION}).\nNo se requieren actualizaciones en este momento.")
-            self.action_btn.setText("Entendido")
-            self.action_btn.setVisible(True)
-            self.update_btn.setVisible(False)
+            self.main_title.setText("Lime Radial está actualizado")
+            self.badge_lbl.setText(f"✓ Ya tienes la versión más reciente (v{CURRENT_VERSION})")
+            self.badge_lbl.setStyleSheet("color: #A3E635; font-weight: bold;")
+            self.desc_lbl.setText("No se requieren actualizaciones en este momento.")
+            
+            self.sec_btn.setText("🔄 Comprobar")
+            self.prim_btn.setText("Entendido")
+            self.prim_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #F3F4F6;
+                    color: #141517;
+                    border: none;
+                    border-radius: 11px;
+                    font-size: 12px;
+                    font-weight: 700;
+                    padding: 0 18px;
+                }
+                QPushButton:hover {
+                    background-color: #FFFFFF;
+                }
+            """)
+            try:
+                self.prim_btn.clicked.disconnect()
+            except Exception:
+                pass
+            self.prim_btn.clicked.connect(self.accept)
 
     def _on_check_error(self, err_msg: str):
-        self.icon_lbl.setText("⚠️")
-        self.status_lbl.setText("No se pudo comprobar actualizaciones")
-        self.detail_lbl.setText("Verifica tu conexión a Internet e inténtalo de nuevo más tarde.")
-        self.action_btn.setText("Cerrar")
-        self.action_btn.setVisible(True)
-        self.update_btn.setVisible(False)
+        self._checking = False
+        self.sec_btn.setEnabled(True)
+        self.main_title.setText("Error de conexión")
+        self.badge_lbl.setText("⚠️ No se pudo comprobar actualizaciones")
+        self.badge_lbl.setStyleSheet("color: #F87171;")
+        self.desc_lbl.setText("Verifica tu conexión a Internet e inténtalo de nuevo.")
+        self.sec_btn.setText("🔄 Reintentar")
 
     def _start_download(self):
         if not self._download_url:
             return
 
-        self.update_btn.setEnabled(False)
-        self.action_btn.setEnabled(False)
+        self.prim_btn.setEnabled(False)
+        self.sec_btn.setEnabled(False)
         self.close_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
-        self.status_lbl.setText("Descargando actualización...")
-        self.detail_lbl.setText("Por favor espera unos segundos...")
+        self.main_title.setText("Descargando actualización…")
+        self.desc_lbl.setText("Espere unos segundos mientras se prepara el instalador...")
 
         self._download_thread = DownloadUpdateThread(self._download_url, self)
         self._download_thread.progress.connect(self._on_download_progress)
@@ -320,30 +436,27 @@ class UpdateDialog(QDialog):
         self.progress_bar.setValue(percent)
         dl_mb = downloaded / (1024 * 1024)
         tot_mb = total / (1024 * 1024)
-        self.detail_lbl.setText(f"{percent}% completado ({dl_mb:.1f} MB / {tot_mb:.1f} MB)")
+        self.badge_lbl.setText(f"{percent}% completado ({dl_mb:.1f} MB / {tot_mb:.1f} MB)")
 
     def _on_download_finished(self, installer_path: str):
-        self.status_lbl.setText("¡Descarga completa!")
-        self.detail_lbl.setText("Aplicando actualización y reiniciando Lime Radial...")
+        self.main_title.setText("¡Descarga completa!")
+        self.badge_lbl.setText("Instalando y reiniciando Lime Radial...")
+        self.desc_lbl.setText("La aplicación se actualizará automáticamente en unos instantes.")
         self.progress_bar.setValue(100)
 
-        # Ejecutar el instalador y cerrar la app actual
+        # Ejecutar el instalador silenciosamente y relanzar LimeRadial
         try:
-            # En Windows: lanzar instalador con /SILENT y reabrir LimeRadial
             target_exe = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "LimeRadial" / "LimeRadial.exe"
             if not target_exe.exists():
                 target_exe = Path(sys.executable)
 
-            # Comando: esperar que instale silenciosamente y relanzar LimeRadial
             cmd = f'start /wait "" "{installer_path}" /SILENT & start "" "{target_exe}"'
             subprocess.Popen(f"cmd /c {cmd}", shell=True)
             
-            # Cerrar la aplicación actual tras 500 ms
-            from PySide6.QtCore import QTimer
             QTimer.singleShot(600, QApplication.quit)
         except Exception as e:
-            self.detail_lbl.setText(f"Error al iniciar instalador: {e}")
-            self.action_btn.setEnabled(True)
+            self.desc_lbl.setText(f"Error al iniciar instalador: {e}")
+            self.prim_btn.setEnabled(True)
             self.close_btn.setEnabled(True)
 
 

@@ -2,7 +2,7 @@
 ; Genera el instalador oficial LimeRadial-Setup.exe
 
 #define MyAppName "Lime Radial"
-#define MyAppVersion "1.1.3"
+#define MyAppVersion "1.1.4"
 #define MyAppPublisher "Lime Radial Open Source"
 #define MyAppURL "https://github.com/JrHector30/lime-radial-windows"
 #define MyAppExeName "LimeRadial.exe"
