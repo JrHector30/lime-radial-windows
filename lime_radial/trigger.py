@@ -167,19 +167,30 @@ class DragShiftWatcher(QObject):
                 rect = (ctypes.c_long * 4)()
                 for w in sw:
                     try:
-                        if w.HWND == root_hwnd or w.HWND == hwnd:
-                            items = w.Document.SelectedItems()
-                            return [
-                                item.Path for item in items
-                                if hasattr(item, "Path") and os.path.isfile(item.Path)
-                            ]
-                        self._user32.GetWindowRect(w.HWND, ctypes.byref(rect))
-                        if rect[0] <= pos.x() <= rect[2] and rect[1] <= pos.y() <= rect[3]:
-                            items = w.Document.SelectedItems()
-                            return [
-                                item.Path for item in items
-                                if hasattr(item, "Path") and os.path.isfile(item.Path)
-                            ]
+                        is_match = False
+                        if hasattr(w, "HWND") and (w.HWND == root_hwnd or w.HWND == hwnd):
+                            is_match = True
+                        elif hasattr(w, "HWND"):
+                            self._user32.GetWindowRect(w.HWND, ctypes.byref(rect))
+                            if rect[0] <= pos.x() <= rect[2] and rect[1] <= pos.y() <= rect[3]:
+                                is_match = True
+
+                        if is_match:
+                            doc = getattr(w, "Document", None)
+                            if doc and hasattr(doc, "SelectedItems"):
+                                items = doc.SelectedItems()
+                                if items and items.Count > 0:
+                                    paths = [
+                                        str(item.Path) for item in items
+                                        if hasattr(item, "Path") and item.Path
+                                    ]
+                                    if paths:
+                                        # Si TODOS los elementos son carpetas, rechazar
+                                        if all(os.path.isdir(p) for p in paths):
+                                            return []
+                                        files = [p for p in paths if os.path.isfile(p)]
+                                        if files:
+                                            return files
                     except Exception:
                         pass
                 return []
@@ -225,11 +236,16 @@ class DragShiftWatcher(QObject):
                     files = self._get_selected_files_at_cursor(self._down_at or pos)
                     real_files = [f for f in files if os.path.isfile(f)]
 
-                    # Si NO hay archivos seleccionados o solo se seleccionaron carpetas, NO mostrar el menú
                     if real_files:
                         self._idle_ticks = 0
                         self._shown_at = pos
                         self.show_menu.emit(pos, real_files)
+                    elif self._user32.FindWindowW("SysDragImage", None) != 0:
+                        # Si Windows ya creó la ventana de arrastre pero COM está ocupado/con desfase en Win11,
+                        # desplegar el menú para capturar el evento OLE directamente
+                        self._idle_ticks = 0
+                        self._shown_at = pos
+                        self.show_menu.emit(pos, [])
             else:
                 self._down_at = None
                 self._down_in_explorer = False

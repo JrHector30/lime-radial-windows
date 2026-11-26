@@ -321,6 +321,12 @@ def convert_office_to_pdf_native(source_path: Path, out_pdf_path: Path) -> bool:
     """Intenta exportar a PDF nativo usando Microsoft Office COM si está instalado."""
     if not WIN32COM_SUPPORTED:
         return False
+    try:
+        import pythoncom
+        pythoncom.CoInitialize()
+    except Exception:
+        pass
+
     ext = source_path.suffix.lower()
     src_abs = str(source_path.resolve())
     out_abs = str(out_pdf_path.resolve())
@@ -329,7 +335,8 @@ def convert_office_to_pdf_native(source_path: Path, out_pdf_path: Path) -> bool:
         if ext in (".docx", ".doc"):
             word = win32com.client.Dispatch("Word.Application")
             word.Visible = False
-            doc = word.Documents.Open(src_abs)
+            word.DisplayAlerts = False
+            doc = word.Documents.Open(src_abs, ReadOnly=True)
             doc.SaveAs(out_abs, FileFormat=17)  # 17 = wdFormatPDF
             doc.Close()
             word.Quit()
@@ -337,20 +344,24 @@ def convert_office_to_pdf_native(source_path: Path, out_pdf_path: Path) -> bool:
         elif ext in (".xlsx", ".xls"):
             excel = win32com.client.Dispatch("Excel.Application")
             excel.Visible = False
-            wb = excel.Workbooks.Open(src_abs)
+            excel.DisplayAlerts = False
+            wb = excel.Workbooks.Open(src_abs, ReadOnly=True)
             wb.ExportAsFixedFormat(0, out_abs)  # 0 = xlTypePDF
             wb.Close(False)
             excel.Quit()
             return True
         elif ext in (".pptx", ".ppt"):
             ppt = win32com.client.Dispatch("PowerPoint.Application")
-            prs = ppt.Presentations.Open(src_abs, WithWindow=False)
+            try:
+                prs = ppt.Presentations.Open(src_abs, True, False, False)
+            except Exception:
+                prs = ppt.Presentations.Open(src_abs)
             prs.SaveAs(out_abs, 32)  # 32 = ppSaveAsPDF
             prs.Close()
             ppt.Quit()
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[Office to PDF error]: {e}", file=sys.stderr)
     return False
 
 

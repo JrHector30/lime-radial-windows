@@ -8,7 +8,17 @@ import os
 import sys
 from pathlib import Path
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QFont, QFontDatabase, QPainter, QPainterPath, QPen, QColor
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QFontDatabase,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QRadialGradient,
+)
 
 FONT_FAMILY = "Segoe UI"
 

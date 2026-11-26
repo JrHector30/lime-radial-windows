@@ -339,21 +339,27 @@ class RadialMenu(QWidget):
             event.ignore()
             return
 
-        self.has_drag = True
-        if paths != self.file_paths:
-            self.file_paths = paths
-            self.formats = get_available_formats(paths)
+        # Si TODOS los elementos arrastrados son carpetas, rechazar de inmediato
+        if all(os.path.isdir(p) for p in paths):
+            event.ignore()
+            self.hide()
+            return
+
+        # Filtrar solo archivos válidos
+        real_files = [p for p in paths if os.path.isfile(p)]
+        if real_files:
+            self.file_paths = real_files
+            self.has_drag = True
+            self.formats = get_available_formats(self.file_paths)
             self._update_radii()
 
-        event.setDropAction(Qt.CopyAction)
-        event.accept()
+        event.acceptProposedAction()
         self.update()
 
     def dragMoveEvent(self, event):
         pos = event.position()
         self._handle_hover_change(self._hit_test(pos))
-        event.setDropAction(Qt.CopyAction)
-        event.accept()
+        event.acceptProposedAction()
 
     def dragLeaveEvent(self, event):
         self._dwell_timer.stop()
@@ -368,14 +374,17 @@ class RadialMenu(QWidget):
             chosen_item = self.formats[idx]
             paths_to_process = list(self.file_paths)
             
-            event.setDropAction(Qt.CopyAction)
-            event.accept()
+            event.acceptProposedAction()
             self.close_menu()
             
-            item_key = chosen_item.upper().replace("TO ", "").strip()
+            item_key = chosen_item.upper().replace("TO ", "").replace("A ", "").strip()
             KNOWN_TOOLS = {
-                "CROP", "COMPRESS", "COLLAGE", "CREATE PDF", "METADATA",
-                "ADD BG", "ADDBG", "EDIT", "ANNOTATE", "REDACT"
+                "CROP", "RECORTAR", "COMPRESS", "COMPRIMIR", "COLLAGE",
+                "CREATE PDF", "CREAR PDF", "METADATA", "METADATOS",
+                "ADD BG", "ADDBG", "BACKGROUND", "AÑADIR FONDO", "FONDO",
+                "EDIT", "EDITAR", "ANNOTATE", "ANOTAR", "REDACT", "CENSURAR",
+                "SPLIT PDF", "DIVIDIR PDF", "SPLIT", "DIVIDIR",
+                "FLATTEN PDF", "APLANAR PDF", "FLATTEN", "APLANAR"
             }
             if self.current_ring_name in ("pdf_tools", "image_tools") or item_key in KNOWN_TOOLS:
                 self.tool_triggered.emit(chosen_item, paths_to_process)
