@@ -86,7 +86,7 @@ SPREADSHEET_EXTENSIONS = {".xlsx", ".xls", ".numbers", ".csv", ".tsv", ".ods"}
 IMAGE_FORMATS = ["JPG", "PNG", "WebP", "HEIC", "TIFF", "AVIF", "BMP", "PDF"]
 AUDIO_FORMATS = ["MP3", "M4A", "WAV", "FLAC", "OGG", "Opus", "AIFF", "WMA"]
 VIDEO_FORMATS = ["MP4", "MOV", "MKV", "WebM", "AVI", "WMV", "GIF", "MP3"]
-PDF_FORMATS = ["SPLIT PDF", "DOCX", "PAGES", "PPTX", "XLSX", "JPG", "PNG", "EPUB", "TXT", "MD"]
+PDF_FORMATS = ["SPLIT PDF", "FLATTEN PDF", "DOCX", "PAGES", "PPTX", "XLSX", "JPG", "PNG", "EPUB", "TXT", "MD"]
 DOCUMENT_FORMATS = ["PAGES", "Markdown", "TXT", "EPUB", "PDF", "HTML", "JPG", "PNG"]
 SLIDE_FORMATS = ["PDF", "JPG", "PNG", "TXT", "MD"]
 SPREADSHEET_FORMATS = ["CSV", "TSV", "PDF", "HTML", "TXT", "MD"]
@@ -486,6 +486,8 @@ def flatten_alpha(im: Image.Image, bg_color=(255, 255, 255)) -> Image.Image:
 def convert_image(source_file: str | Path, target_format: str, quality: int = 92) -> Path:
     source_path = Path(source_file)
     target_fmt = target_format.upper().replace("TO ", "").strip()
+    if target_fmt in ("FLATTEN PDF", "FLATTEN"):
+        target_fmt = "PDF"
     
     # Soporte especial para AVIF mediante FFmpeg si Pillow no tiene codec nativo
     if target_fmt == "AVIF":
@@ -574,10 +576,60 @@ def split_pdf(source_file: str | Path) -> List[Path]:
     return outputs
 
 
+def flatten_pdf(source_file: str | Path, dpi: int = 350) -> Path:
+    """
+    Aplana un archivo PDF rasterizando cada página en alta resolución como imagen dentro de un nuevo PDF.
+    Elimina texto seleccionable, capas, formularios, anotaciones y metadatos para que
+    el documento funcione como una imagen nítida en formato PDF.
+    """
+    if not PYMUPDF_SUPPORTED:
+        raise RuntimeError("PyMuPDF no está disponible para aplanar el PDF.")
+
+    src = Path(source_file)
+    doc = fitz.open(src)
+    out_doc = fitz.open()
+
+    try:
+        try:
+            fitz.TOOLS.set_aa_level(8)
+        except Exception:
+            pass
+
+        max_side_px = 6000
+        for page in doc:
+            rect = page.rect
+            max_inch = max(rect.width, rect.height) / 72.0
+            effective_dpi = dpi
+            if max_inch > 0 and max_inch * effective_dpi > max_side_px:
+                effective_dpi = max(150, int(max_side_px / max_inch))
+
+            pix = page.get_pixmap(dpi=effective_dpi, alpha=False)
+            new_page = out_doc.new_page(width=rect.width, height=rect.height)
+            new_page.insert_image(new_page.rect, stream=pix.tobytes("png"))
+
+        out_doc.set_metadata({})
+        try:
+            out_doc.del_xml_metadata()
+        except Exception:
+            pass
+
+        out_file = src.parent / f"{src.stem}_flattened.pdf"
+        counter = 1
+        while out_file.exists():
+            out_file = src.parent / f"{src.stem}_flattened ({counter}).pdf"
+            counter += 1
+
+        out_doc.save(str(out_file), garbage=4, deflate=True, clean=True)
+        return out_file
+    finally:
+        out_doc.close()
+        doc.close()
+
+
 def convert_pdf(source_file: str | Path, target_format: str) -> List[Path]:
     """
     Convierte un PDF a los formatos solicitados:
-    SPLIT PDF, DOCX, PAGES, PPTX, XLSX, JPG, PNG, EPUB, TXT, MD.
+    SPLIT PDF, FLATTEN PDF, DOCX, PAGES, PPTX, XLSX, JPG, PNG, EPUB, TXT, MD.
     """
     if not PYMUPDF_SUPPORTED:
         raise RuntimeError("PyMuPDF no está disponible.")
@@ -588,6 +640,10 @@ def convert_pdf(source_file: str | Path, target_format: str) -> List[Path]:
     # Opción de dividir en varios PDFs individuales en la misma ubicación
     if fmt in ("SPLIT", "SPLIT PDF", "DIVIDIR", "DIVIDIR PDF", "SPLIT INTO PAGES"):
         return split_pdf(source_path)
+
+    # Opción de aplanar el PDF (solo imagen por página, sin texto ni metadatos)
+    if fmt in ("FLATTEN", "FLATTEN PDF", "APLANAR", "APLANAR PDF"):
+        return [flatten_pdf(source_path)]
 
     doc = fitz.open(source_path)
     outputs = []
