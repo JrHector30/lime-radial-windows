@@ -190,12 +190,6 @@ class LimeTray(QSystemTrayIcon):
         family_group.addAction(acrylic_act)
         themes_menu.addAction(acrylic_act)
 
-        classic_act = QAction("⚪ Clásico", self, checkable=True)
-        classic_act.setChecked(theme_mgr.current_family == "classic")
-        classic_act.triggered.connect(lambda: theme_mgr.set_family("classic"))
-        family_group.addAction(classic_act)
-        themes_menu.addAction(classic_act)
-
         menu.addSeparator()
 
         # Habilitar / Deshabilitar

@@ -39,8 +39,9 @@ from PySide6.QtWidgets import (
 )
 
 from .icons import FONT_FAMILY, draw_lime_fruit_icon
+from .themes import ThemeManager
 
-CURRENT_VERSION = "1.1.7"
+CURRENT_VERSION = "1.1.8"
 GITHUB_REPO = "JrHector30/lime-radial-windows"
 RELEASES_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
@@ -130,6 +131,11 @@ class LimeTileWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setFixedSize(64, 64)
+        self._is_light = False
+
+    def set_mode(self, is_light: bool):
+        self._is_light = is_light
+        self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -137,14 +143,19 @@ class LimeTileWidget(QWidget):
         
         # Resplandor suave de fondo
         glow = QRadialGradient(32, 32, 32)
-        glow.setColorAt(0.0, QColor(250, 204, 21, 35))
+        glow_alpha = 45 if self._is_light else 35
+        glow.setColorAt(0.0, QColor(250, 204, 21, glow_alpha))
         glow.setColorAt(1.0, QColor(0, 0, 0, 0))
         painter.fillRect(self.rect(), glow)
 
         # Mosaico de vidrio
         rect = QRectF(4, 4, 56, 56)
-        painter.setBrush(QColor(255, 255, 255, 12))
-        painter.setPen(QPen(QColor(255, 255, 255, 20), 1.0))
+        if self._is_light:
+            painter.setBrush(QColor(0, 0, 0, 8))
+            painter.setPen(QPen(QColor(0, 0, 0, 22), 1.0))
+        else:
+            painter.setBrush(QColor(255, 255, 255, 14))
+            painter.setPen(QPen(QColor(255, 255, 255, 22), 1.0))
         painter.drawRoundedRect(rect, 16, 16)
 
         # Icono cítrico
@@ -162,67 +173,35 @@ class UpdateDialog(QDialog):
         self._download_url = ""
         self._new_version = ""
         self._checking = False
+        self._has_update = False
+        self._has_error = False
+        self._drag_pos = None
+
+        self.theme_mgr = ThemeManager.get_instance()
+        self.theme_mgr.add_listener(self._apply_theme)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
 
-        card = QWidget(self)
-        card.setObjectName("updateCard")
-        card.setStyleSheet(f"""
-            QWidget#updateCard {{
-                background-color: rgba(28, 29, 31, 0.96);
-                border: 1px solid rgba(255, 255, 255, 0.10);
-                border-radius: 22px;
-            }}
-            QLabel {{
-                color: #F5F5F5;
-                font-family: "{FONT_FAMILY}";
-            }}
-            QProgressBar {{
-                border: 1px solid rgba(255, 255, 255, 0.18);
-                border-radius: 8px;
-                background-color: rgba(0, 0, 0, 0.4);
-                text-align: center;
-                color: #FFFFFF;
-                font-weight: bold;
-                font-size: 11px;
-            }}
-            QProgressBar::chunk {{
-                background-color: #84CC16;
-                border-radius: 7px;
-            }}
-        """)
+        self.card = QWidget(self)
+        self.card.setObjectName("updateCard")
+        root.addWidget(self.card)
 
-        card_layout = QVBoxLayout(card)
+        card_layout = QVBoxLayout(self.card)
         card_layout.setContentsMargins(20, 16, 20, 20)
         card_layout.setSpacing(10)
 
         # 1. Barra superior: Título a la izquierda, botón circular de cierre a la derecha
         top_bar = QHBoxLayout()
-        top_title = QLabel("Buscar Actualizaciones")
-        top_title.setFont(QFont(FONT_FAMILY, 10))
-        top_title.setStyleSheet("color: #9CA3AF; font-weight: 500;")
+        self.top_title = QLabel("Buscar Actualizaciones")
+        self.top_title.setFont(QFont(FONT_FAMILY, 10))
 
         self.close_btn = QPushButton("✕")
         self.close_btn.setFixedSize(26, 26)
         self.close_btn.setCursor(Qt.PointingHandCursor)
-        self.close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                border: none;
-                border-radius: 13px;
-                font-size: 12px;
-                font-weight: bold;
-                color: #9CA3AF;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.08);
-                color: #FFFFFF;
-            }
-        """)
         self.close_btn.clicked.connect(self.accept)
 
-        top_bar.addWidget(top_title)
+        top_bar.addWidget(self.top_title)
         top_bar.addStretch()
         top_bar.addWidget(self.close_btn)
         card_layout.addLayout(top_bar)
@@ -243,14 +222,12 @@ class UpdateDialog(QDialog):
         self.main_title = QLabel("Comprobando actualizaciones…")
         self.main_title.setAlignment(Qt.AlignCenter)
         self.main_title.setFont(QFont(FONT_FAMILY, 13, QFont.Bold))
-        self.main_title.setStyleSheet("color: #F5F5F5; letter-spacing: -0.01em;")
         card_layout.addWidget(self.main_title)
 
-        # 4. Badge de estado (Check verde con versión)
+        # 4. Badge de estado (Check con versión)
         self.badge_lbl = QLabel(f"✓ Versión actual instalada: v{CURRENT_VERSION}")
         self.badge_lbl.setAlignment(Qt.AlignCenter)
         self.badge_lbl.setFont(QFont(FONT_FAMILY, 9, QFont.DemiBold))
-        self.badge_lbl.setStyleSheet("color: #A3E635;")
         self.badge_lbl.setWordWrap(True)
         card_layout.addWidget(self.badge_lbl)
 
@@ -258,7 +235,6 @@ class UpdateDialog(QDialog):
         self.desc_lbl = QLabel("Consultando el servidor oficial de GitHub Releases...")
         self.desc_lbl.setAlignment(Qt.AlignCenter)
         self.desc_lbl.setFont(QFont(FONT_FAMILY, 9))
-        self.desc_lbl.setStyleSheet("color: #8B929A;")
         self.desc_lbl.setWordWrap(True)
         card_layout.addWidget(self.desc_lbl)
 
@@ -274,57 +250,175 @@ class UpdateDialog(QDialog):
         self.btn_layout = QHBoxLayout()
         self.btn_layout.setSpacing(10)
 
-        # Botón secundario "Comprobar de nuevo" / "Más tarde"
         self.sec_btn = QPushButton("🔄 Comprobar")
         self.sec_btn.setFixedHeight(36)
         self.sec_btn.setCursor(Qt.PointingHandCursor)
-        self.sec_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.10);
-                border-radius: 11px;
-                color: #A1A1AA;
-                font-family: 'Plus Jakarta Sans', sans-serif;
-                font-size: 11.5px;
-                font-weight: 600;
-                padding: 0 14px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.10);
-                color: #FFFFFF;
-            }
-        """)
         self.sec_btn.clicked.connect(self._recheck)
 
-        # Botón primario "Entendido" / "Actualizar ahora"
         self.prim_btn = QPushButton("Entendido")
         self.prim_btn.setFixedHeight(36)
         self.prim_btn.setCursor(Qt.PointingHandCursor)
-        self.prim_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #F3F4F6;
-                color: #141517;
-                border: none;
-                border-radius: 11px;
-                font-family: 'Plus Jakarta Sans', sans-serif;
-                font-size: 12px;
-                font-weight: 700;
-                padding: 0 18px;
-            }
-            QPushButton:hover {
-                background-color: #FFFFFF;
-            }
-        """)
         self.prim_btn.clicked.connect(self.accept)
 
         self.btn_layout.addWidget(self.sec_btn)
         self.btn_layout.addWidget(self.prim_btn)
         card_layout.addLayout(self.btn_layout)
 
-        root.addWidget(card)
-
+        self._apply_theme()
         # Disparar verificación inicial
         self._start_check()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton and self._drag_pos is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
+
+    def _apply_theme(self, theme=None):
+        palette = self.theme_mgr.get_accent_palette()
+        is_light = (self.theme_mgr.current_mode == "light")
+        font = FONT_FAMILY
+
+        self.tile_widget.set_mode(is_light)
+
+        if is_light:
+            card_bg = "#FFFFFF"
+            card_border = "#E4E4E7"
+            title_color = "#18181B"
+            top_title_color = "#71717A"
+            close_btn_color = "#71717A"
+            close_btn_hover = "#F4F4F5"
+            desc_color = "#71717A"
+            sec_btn_bg = "#F4F4F5"
+            sec_btn_border = "#E4E4E7"
+            sec_btn_color = "#18181B"
+            sec_btn_hover = "#E4E4E7"
+            prog_bg = "rgba(0, 0, 0, 0.08)"
+            prog_border = "#E4E4E7"
+        else:
+            card_bg = "rgba(28, 29, 31, 0.96)"
+            card_border = "rgba(255, 255, 255, 0.12)"
+            title_color = "#F5F5F5"
+            top_title_color = "#9CA3AF"
+            close_btn_color = "#9CA3AF"
+            close_btn_hover = "rgba(255, 255, 255, 0.08)"
+            desc_color = "#8B929A"
+            sec_btn_bg = "rgba(255, 255, 255, 0.05)"
+            sec_btn_border = "rgba(255, 255, 255, 0.10)"
+            sec_btn_color = "#A1A1AA"
+            sec_btn_hover = "rgba(255, 255, 255, 0.10)"
+            prog_bg = "rgba(0, 0, 0, 0.4)"
+            prog_border = "rgba(255, 255, 255, 0.18)"
+
+        self.card.setStyleSheet(f"""
+            QWidget#updateCard {{
+                background-color: {card_bg};
+                border: 1.5px solid {card_border};
+                border-radius: 22px;
+            }}
+            QLabel {{
+                font-family: "{font}";
+            }}
+            QProgressBar {{
+                border: 1px solid {prog_border};
+                border-radius: 8px;
+                background-color: {prog_bg};
+                text-align: center;
+                color: #FFFFFF;
+                font-weight: bold;
+                font-size: 11px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {palette.solid_bg};
+                border-radius: 7px;
+            }}
+        """)
+
+        self.top_title.setStyleSheet(f"color: {top_title_color}; font-weight: 500; font-family: '{font}';")
+        self.close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 13px;
+                font-size: 12px;
+                font-weight: bold;
+                color: {close_btn_color};
+            }}
+            QPushButton:hover {{
+                background-color: {close_btn_hover};
+                color: {title_color};
+            }}
+        """)
+
+        self.main_title.setStyleSheet(f"color: {title_color}; letter-spacing: -0.01em; font-family: '{font}';")
+        self.desc_lbl.setStyleSheet(f"color: {desc_color}; font-family: '{font}';")
+
+        if not self._has_error:
+            self.badge_lbl.setStyleSheet(f"color: {palette.text}; font-weight: bold; font-family: '{font}';")
+        else:
+            self.badge_lbl.setStyleSheet(f"color: #F87171; font-weight: bold; font-family: '{font}';")
+
+        self.sec_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {sec_btn_bg};
+                border: 1px solid {sec_btn_border};
+                border-radius: 11px;
+                color: {sec_btn_color};
+                font-family: '{font}', sans-serif;
+                font-size: 11.5px;
+                font-weight: 600;
+                padding: 0 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {sec_btn_hover};
+                color: {title_color};
+            }}
+        """)
+
+        if self._has_update:
+            self.prim_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {palette.solid_bg};
+                    color: {palette.solid_text};
+                    border: 1px solid {palette.border};
+                    border-radius: 11px;
+                    font-family: '{font}', sans-serif;
+                    font-size: 12px;
+                    font-weight: 700;
+                    padding: 0 18px;
+                }}
+                QPushButton:hover {{
+                    background-color: {palette.primary};
+                }}
+            """)
+        else:
+            self.prim_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {palette.soft_bg};
+                    color: {palette.cta_text};
+                    border: 1.5px solid {palette.border};
+                    border-radius: 11px;
+                    font-family: '{font}', sans-serif;
+                    font-size: 12px;
+                    font-weight: 700;
+                    padding: 0 18px;
+                }}
+                QPushButton:hover {{
+                    background-color: {palette.soft_bg_hover};
+                }}
+            """)
 
     def _start_check(self):
         self._checking = True
@@ -346,9 +440,11 @@ class UpdateDialog(QDialog):
 
     def _on_check_finished(self, has_update: bool, tag: str, url: str, notes: str, size: int):
         self._checking = False
+        self._has_error = False
         self.sec_btn.setEnabled(True)
 
         if has_update and url:
+            self._has_update = True
             self._download_url = url
             self._new_version = tag
             self.main_title.setText(f"¡Nueva versión {tag} disponible!")
@@ -356,49 +452,25 @@ class UpdateDialog(QDialog):
             size_mb = size / (1024 * 1024) if size > 0 else 0
             size_txt = f" ({size_mb:.1f} MB)" if size_mb > 0 else ""
             self.badge_lbl.setText(f"Tu versión: v{CURRENT_VERSION}  ➔  Nueva: {tag}{size_txt}")
-            self.badge_lbl.setStyleSheet("color: #A3E635; font-weight: bold;")
             self.desc_lbl.setText("La actualización se descargará e instalará automáticamente.")
             
             self.sec_btn.setText("Más tarde")
             self.prim_btn.setText("🚀 Actualizar ahora")
-            self.prim_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #84CC16;
-                    color: #1A202C;
-                    border: 1px solid #A3E635;
-                    border-radius: 11px;
-                    font-size: 12px;
-                    font-weight: 700;
-                    padding: 0 18px;
-                }
-                QPushButton:hover {
-                    background-color: #A3E635;
-                }
-            """)
-            self.prim_btn.clicked.disconnect()
+            self._apply_theme()
+            try:
+                self.prim_btn.clicked.disconnect()
+            except Exception:
+                pass
             self.prim_btn.clicked.connect(self._start_download)
         else:
+            self._has_update = False
             self.main_title.setText("Lime Radial está actualizado")
             self.badge_lbl.setText(f"✓ Ya tienes la versión más reciente (v{CURRENT_VERSION})")
-            self.badge_lbl.setStyleSheet("color: #A3E635; font-weight: bold;")
             self.desc_lbl.setText("No se requieren actualizaciones en este momento.")
             
             self.sec_btn.setText("🔄 Comprobar")
             self.prim_btn.setText("Entendido")
-            self.prim_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #F3F4F6;
-                    color: #141517;
-                    border: none;
-                    border-radius: 11px;
-                    font-size: 12px;
-                    font-weight: 700;
-                    padding: 0 18px;
-                }
-                QPushButton:hover {
-                    background-color: #FFFFFF;
-                }
-            """)
+            self._apply_theme()
             try:
                 self.prim_btn.clicked.disconnect()
             except Exception:
@@ -407,12 +479,29 @@ class UpdateDialog(QDialog):
 
     def _on_check_error(self, err_msg: str):
         self._checking = False
+        self._has_error = True
         self.sec_btn.setEnabled(True)
         self.main_title.setText("Error de conexión")
         self.badge_lbl.setText("⚠️ No se pudo comprobar actualizaciones")
-        self.badge_lbl.setStyleSheet("color: #F87171;")
         self.desc_lbl.setText("Verifica tu conexión a Internet e inténtalo de nuevo.")
         self.sec_btn.setText("🔄 Reintentar")
+        self._apply_theme()
+
+    def _cleanup(self):
+        if hasattr(self, "theme_mgr"):
+            self.theme_mgr.remove_listener(self._apply_theme)
+
+    def accept(self):
+        self._cleanup()
+        super().accept()
+
+    def reject(self):
+        self._cleanup()
+        super().reject()
+
+    def closeEvent(self, event):
+        self._cleanup()
+        super().closeEvent(event)
 
     def _start_download(self):
         if not self._download_url:

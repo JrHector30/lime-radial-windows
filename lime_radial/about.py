@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from .icons import FONT_FAMILY
+from .themes import ThemeManager
 
 
 class AboutDialog(QDialog):
@@ -29,77 +30,33 @@ class AboutDialog(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.resize(520, 620)
 
+        self._drag_pos = None
+        self.theme_mgr = ThemeManager.get_instance()
+        self.theme_mgr.add_listener(self._apply_theme)
+
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 14)
 
-        card = QWidget(self)
-        card.setObjectName("aboutCard")
-        card.setStyleSheet(f"""
-            QWidget#aboutCard {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 rgba(36, 32, 28, 0.96),
-                    stop:1 rgba(22, 20, 18, 0.98));
-                border: 1.5px solid rgba(255, 255, 255, 0.2);
-                border-radius: 24px;
-            }}
-            QLabel {{
-                color: #FFFFFF;
-                font-family: "{FONT_FAMILY}";
-            }}
-            QTextBrowser {{
-                background: transparent;
-                border: none;
-                color: #CCCCCC;
-                font-family: "{FONT_FAMILY}";
-                font-size: 10pt;
-                line-height: 1.5;
-            }}
-            QScrollBar:vertical {{
-                width: 0px;
-            }}
-            QPushButton {{
-                font-family: "{FONT_FAMILY}";
-                font-weight: bold;
-                border-radius: 9px;
-                padding: 7px 18px;
-                background-color: rgba(255, 255, 255, 0.15);
-                color: #FFFFFF;
-                border: 1px solid rgba(255, 255, 255, 0.25);
-            }}
-            QPushButton:hover {{
-                background-color: rgba(255, 255, 255, 0.25);
-            }}
-        """)
+        self.card = QWidget(self)
+        self.card.setObjectName("aboutCard")
+        root.addWidget(self.card)
 
-        card_layout = QVBoxLayout(card)
+        card_layout = QVBoxLayout(self.card)
         card_layout.setContentsMargins(24, 20, 24, 20)
         card_layout.setSpacing(14)
 
         # Barra superior con botón circular de cierre
         top_bar = QHBoxLayout()
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(30, 30)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.12);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                border-radius: 15px;
-                font-size: 13px;
-                font-weight: bold;
-                color: #FFFFFF;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.22);
-            }
-        """)
-        close_btn.clicked.connect(self.accept)
+        self.close_btn = QPushButton("✕")
+        self.close_btn.setFixedSize(30, 30)
+        self.close_btn.clicked.connect(self.accept)
 
-        title = QLabel("Acerca de / About")
-        title.setFont(QFont(FONT_FAMILY, 13, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
+        self.title_lbl = QLabel("Acerca de / About")
+        self.title_lbl.setFont(QFont(FONT_FAMILY, 13, QFont.Bold))
+        self.title_lbl.setAlignment(Qt.AlignCenter)
 
-        top_bar.addWidget(close_btn)
-        top_bar.addWidget(title, 1)
+        top_bar.addWidget(self.close_btn)
+        top_bar.addWidget(self.title_lbl, 1)
         top_bar.addSpacing(30)
         card_layout.addLayout(top_bar)
 
@@ -108,36 +65,128 @@ class AboutDialog(QDialog):
         header_layout.setAlignment(Qt.AlignCenter)
         header_layout.setSpacing(4)
 
-        logo_label = QLabel("🍋")
-        logo_label.setAlignment(Qt.AlignCenter)
-        logo_label.setStyleSheet("font-size: 42px; margin-bottom: 4px;")
-        header_layout.addWidget(logo_label)
+        self.logo_label = QLabel("🍋")
+        self.logo_label.setAlignment(Qt.AlignCenter)
+        self.logo_label.setStyleSheet("font-size: 42px; margin-bottom: 4px;")
+        header_layout.addWidget(self.logo_label)
 
-        app_name = QLabel("Lime Radial")
-        app_name.setAlignment(Qt.AlignCenter)
-        app_name.setFont(QFont(FONT_FAMILY, 17, QFont.Bold))
-        app_name.setStyleSheet("color: #FFFFFF;")
-        header_layout.addWidget(app_name)
+        self.app_name = QLabel("Lime Radial")
+        self.app_name.setAlignment(Qt.AlignCenter)
+        self.app_name.setFont(QFont(FONT_FAMILY, 17, QFont.Bold))
+        header_layout.addWidget(self.app_name)
 
-        version_label = QLabel("lime-radial-windows • v1.1.7 (Open Source)")
-        version_label.setAlignment(Qt.AlignCenter)
-        version_label.setFont(QFont(FONT_FAMILY, 9))
-        version_label.setStyleSheet("color: #84CC16; font-weight: bold;")
-        header_layout.addWidget(version_label)
+        self.version_label = QLabel("lime-radial-windows • v1.1.8 (Open Source)")
+        self.version_label.setAlignment(Qt.AlignCenter)
+        self.version_label.setFont(QFont(FONT_FAMILY, 9))
+        header_layout.addWidget(self.version_label)
 
         card_layout.addLayout(header_layout)
 
         # Texto informativo con créditos y descargo de responsabilidad
-        info_browser = QTextBrowser()
-        info_browser.setOpenExternalLinks(True)
+        self.info_browser = QTextBrowser()
+        self.info_browser.setOpenExternalLinks(True)
+        card_layout.addWidget(self.info_browser, 1)
+
+        # Botón inferior Aceptar
+        bot_bar = QHBoxLayout()
+        self.ok_btn = QPushButton("Cerrar")
+        self.ok_btn.setFixedWidth(110)
+        self.ok_btn.setFixedHeight(36)
+        self.ok_btn.setCursor(Qt.PointingHandCursor)
+        self.ok_btn.clicked.connect(self.accept)
+        bot_bar.addStretch()
+        bot_bar.addWidget(self.ok_btn)
+        bot_bar.addStretch()
+        card_layout.addLayout(bot_bar)
+
+        self._apply_theme()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton and self._drag_pos is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
+
+    def _apply_theme(self, theme=None):
+        palette = self.theme_mgr.get_accent_palette()
+        is_light = (self.theme_mgr.current_mode == "light")
+        font = FONT_FAMILY
+
+        if is_light:
+            card_bg = "#FFFFFF"
+            card_border = "#E4E4E7"
+            text_title = "#18181B"
+            text_body = "#3F3F46"
+            text_muted = "#71717A"
+            close_btn_bg = "#F4F4F5"
+            close_btn_color = "#71717A"
+            close_btn_hover = "#E4E4E7"
+            box_bg = "#F4F4F5"
+            box_text = "#27272A"
+        else:
+            card_bg = "rgba(22, 22, 24, 0.98)"
+            card_border = "rgba(255, 255, 255, 0.15)"
+            text_title = "#FFFFFF"
+            text_body = "#D1D5DB"
+            text_muted = "#9CA3AF"
+            close_btn_bg = "rgba(255, 255, 255, 0.10)"
+            close_btn_color = "#FFFFFF"
+            close_btn_hover = "rgba(255, 255, 255, 0.20)"
+            box_bg = "rgba(255, 255, 255, 0.06)"
+            box_text = "#E5E7EB"
+
+        self.card.setStyleSheet(f"""
+            QWidget#aboutCard {{
+                background-color: {card_bg};
+                border: 1.5px solid {card_border};
+                border-radius: 24px;
+            }}
+            QLabel {{
+                font-family: "{font}";
+            }}
+            QScrollBar:vertical {{
+                width: 0px;
+            }}
+        """)
+
+        self.title_lbl.setStyleSheet(f"color: {text_title}; font-family: '{font}';")
+        self.app_name.setStyleSheet(f"color: {text_title}; font-family: '{font}';")
+        self.version_label.setStyleSheet(f"color: {palette.text}; font-weight: bold; font-family: '{font}';")
+
+        self.close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {close_btn_bg};
+                border: 1px solid {card_border};
+                border-radius: 15px;
+                font-size: 13px;
+                font-weight: bold;
+                color: {close_btn_color};
+            }}
+            QPushButton:hover {{
+                background-color: {close_btn_hover};
+            }}
+        """)
+
         html_content = f"""
-        <div style="font-family: '{FONT_FAMILY}', sans-serif; color: #D1D5DB; font-size: 12px; line-height: 1.5;">
+        <div style="font-family: '{font}', sans-serif; color: {text_body}; font-size: 12px; line-height: 1.5;">
             <p><b>Lime Radial</b> es una utilidad de productividad de código abierto para Windows diseñada para la manipulación y conversión rápida de archivos mediante un menú radial con interacción Shift + Arrastre.</p>
             
             <p style="margin-top: 10px;"><b>Licencia:</b> Distribuido bajo la Licencia MIT.</p>
             
             <p style="margin-top: 10px;"><b>Créditos a Proyectos de Terceros:</b></p>
-            <ul style="margin-top: 4px; padding-left: 18px; color: #9CA3AF;">
+            <ul style="margin-top: 4px; padding-left: 18px; color: {text_muted};">
                 <li><b>PySide6 (Qt)</b> — Interfaz gráfica y motor vectorial QPainter.</li>
                 <li><b>FFmpeg</b> (vía imageio-ffmpeg) — Procesamiento de audio y video.</li>
                 <li><b>Pillow & Pillow-HEIF</b> — Conversión de imágenes y soporte HEIC.</li>
@@ -146,35 +195,46 @@ class AboutDialog(QDialog):
                 <li><b>Plus Jakarta Sans</b> — Tipografía (Licencia SIL Open Font).</li>
             </ul>
 
-            <div style="margin-top: 14px; padding: 10px 12px; background-color: rgba(255, 255, 255, 0.06); border-left: 3px solid #84CC16; border-radius: 4px; color: #E5E7EB; font-size: 11px;">
+            <div style="margin-top: 14px; padding: 10px 12px; background-color: {box_bg}; border-left: 3px solid {palette.border}; border-radius: 4px; color: {box_text}; font-size: 11px;">
                 <b>Disclaimer:</b> This project is an independent open-source utility for Windows and is not affiliated, associated, authorized, endorsed by, or in any way officially connected with Leap Studio or the original Tangerine app for macOS.
             </div>
         </div>
         """
-        info_browser.setHtml(html_content)
-        card_layout.addWidget(info_browser, 1)
+        self.info_browser.setStyleSheet(f"background: transparent; border: none; font-family: '{font}';")
+        self.info_browser.setHtml(html_content)
 
-        # Botón inferior Aceptar
-        bot_bar = QHBoxLayout()
-        ok_btn = QPushButton("Cerrar")
-        ok_btn.setFixedWidth(100)
-        ok_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #84CC16;
-                color: #111827;
+        self.ok_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {palette.soft_bg};
+                color: {palette.cta_text};
                 font-weight: bold;
-                border: 1px solid #A3E635;
+                border: 1.5px solid {palette.border};
                 padding: 8px 16px;
                 border-radius: 9px;
-            }
-            QPushButton:hover {
-                background-color: #A3E635;
-            }
+                font-family: '{font}';
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {palette.soft_bg_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {palette.solid_bg};
+                color: {palette.solid_text};
+            }}
         """)
-        ok_btn.clicked.connect(self.accept)
-        bot_bar.addStretch()
-        bot_bar.addWidget(ok_btn)
-        bot_bar.addStretch()
-        card_layout.addLayout(bot_bar)
 
-        root.addWidget(card)
+    def _cleanup(self):
+        if hasattr(self, "theme_mgr"):
+            self.theme_mgr.remove_listener(self._apply_theme)
+
+    def accept(self):
+        self._cleanup()
+        super().accept()
+
+    def reject(self):
+        self._cleanup()
+        super().reject()
+
+    def closeEvent(self, event):
+        self._cleanup()
+        super().closeEvent(event)

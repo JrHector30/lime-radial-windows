@@ -1,22 +1,34 @@
 """
 Sistema de temas para Lime Radial Windows.
-Soporta familias: 'classic', 'lime', 'tangerine', 'acrylic'
+Soporta familias: 'lime', 'tangerine', 'acrylic'
 y modos de apariencia: 'light' y 'dark'.
 Persiste la selección del usuario mediante QSettings.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QSettings
 from PySide6.QtGui import QColor, QLinearGradient, QRadialGradient
 
 
 @dataclass
+class ThemeAccentPalette:
+    primary: str
+    border: str
+    text: str
+    soft_bg: str
+    soft_bg_hover: str
+    cta_text: str
+    solid_bg: str
+    solid_text: str
+
+
+@dataclass
 class RadialThemeSpec:
     id: str
-    family: str  # 'classic' | 'lime' | 'tangerine' | 'acrylic'
+    family: str  # 'lime' | 'tangerine' | 'acrylic'
     mode: str    # 'light' | 'dark'
     name: str
     subtitle: str
@@ -45,36 +57,46 @@ class RadialThemeSpec:
     half_gap: float = 2.9
 
 
-CLASSIC_THEME = RadialThemeSpec(
-    id="classic",
-    family="classic",
-    mode="dark",
-    name="Clásico",
-    subtitle="Diseño base con contraste naranja",
-    swatch="#FF5000",
-    backdrop_fill="rgba(12, 12, 12, 0.56)",
-    backdrop_stroke="rgba(210, 198, 180, 0.36)",
-    backdrop_stroke_width=1.75,
-    pith_ring_stroke=None,
-    wedge_fill="#EBEBEB",
-    wedge_stroke="rgba(255, 255, 255, 0.4)",
-    wedge_stroke_width=0.65,
-    wedge_active_fill_type="solid",
-    wedge_active_colors=("#FF5000", "#E04500"),
-    wedge_active_stroke="rgba(255, 190, 150, 0.65)",
-    wedge_text="#262626",
-    wedge_active_text="#FFFFFF",
-    wedge_icon="#323232",
-    wedge_active_icon="#FFFFFF",
-    center_fill="#EFEFEF",
-    center_stroke="rgba(255, 255, 255, 0.65)",
-    center_text="#222222",
-    active_scale=1.0,
-    show_pulp_veins=False,
-    wedge_corner_out=11.5,
-    wedge_corner_in=9.5,
-    half_gap=2.6,
-)
+def get_theme_accent_palette(family: str, mode: str) -> ThemeAccentPalette:
+    """Devuelve la paleta de acentos dinámicos exacta según la familia de tema y modo."""
+    is_light = (mode == "light")
+
+    if family == "lime":
+        return ThemeAccentPalette(
+            primary="#78C81E" if is_light else "#84CC16",
+            border="#65A30D" if is_light else "#A3E635",
+            text="#3F6212" if is_light else "#A3E635",
+            soft_bg="rgba(120, 200, 30, 0.13)" if is_light else "rgba(163, 230, 53, 0.12)",
+            soft_bg_hover="rgba(120, 200, 30, 0.22)" if is_light else "rgba(163, 230, 53, 0.22)",
+            cta_text="#1A2E05" if is_light else "#FFFFFF",
+            solid_bg="#65A30D" if is_light else "#84CC16",
+            solid_text="#FFFFFF" if is_light else "#0E140B",
+        )
+    elif family == "tangerine":
+        return ThemeAccentPalette(
+            primary="#F97316",
+            border="#EA580C" if is_light else "#FB923C",
+            text="#C2410C" if is_light else "#FB923C",
+            soft_bg="rgba(249, 115, 22, 0.11)" if is_light else "rgba(249, 115, 22, 0.14)",
+            soft_bg_hover="rgba(249, 115, 22, 0.20)" if is_light else "rgba(249, 115, 22, 0.24)",
+            cta_text="#7C2D12" if is_light else "#FFFFFF",
+            solid_bg="#EA580C" if is_light else "#F97316",
+            solid_text="#FFFFFF",
+        )
+    elif family == "acrylic":
+        return ThemeAccentPalette(
+            primary="#FF5D47",
+            border="#FF5D47",
+            text="#DC3B26" if is_light else "#FF7B69",
+            soft_bg="rgba(255, 93, 71, 0.11)" if is_light else "rgba(255, 93, 71, 0.14)",
+            soft_bg_hover="rgba(255, 93, 71, 0.20)" if is_light else "rgba(255, 93, 71, 0.24)",
+            cta_text="#7F1D1D" if is_light else "#FFFFFF",
+            solid_bg="#FF5D47",
+            solid_text="#FFFFFF",
+        )
+    # Por defecto / fallback: lime
+    return get_theme_accent_palette("lime", mode)
+
 
 LIGHT_THEMES: Dict[str, RadialThemeSpec] = {
     "lime": RadialThemeSpec(
@@ -268,9 +290,19 @@ class ThemeManager:
 
     def __init__(self):
         self.settings = QSettings("LimeRadial", "LimeRadial")
-        self.current_family = self.settings.value("theme_family", "lime")
-        self.current_mode = self.settings.value("theme_mode", "dark")
-        self._listeners: List[callable] = []
+        family = self.settings.value("theme_family", "lime")
+        if family not in ("lime", "tangerine", "acrylic"):
+            family = "lime"
+            self.settings.setValue("theme_family", "lime")
+        self.current_family = family
+
+        mode = self.settings.value("theme_mode", "dark")
+        if mode not in ("light", "dark"):
+            mode = "dark"
+            self.settings.setValue("theme_mode", "dark")
+        self.current_mode = mode
+
+        self._listeners: List[Callable[[RadialThemeSpec], None]] = []
 
     @classmethod
     def get_instance(cls) -> ThemeManager:
@@ -279,10 +311,11 @@ class ThemeManager:
         return cls._instance
 
     def get_theme(self) -> RadialThemeSpec:
-        if self.current_family == "classic":
-            return CLASSIC_THEME
         mode_map = LIGHT_THEMES if self.current_mode == "light" else DARK_THEMES
-        return mode_map.get(self.current_family, DARK_THEMES["lime"])
+        return mode_map.get(self.current_family, mode_map["lime"])
+
+    def get_accent_palette(self) -> ThemeAccentPalette:
+        return get_theme_accent_palette(self.current_family, self.current_mode)
 
     def set_mode(self, mode: str):
         if mode in ("light", "dark"):
@@ -291,22 +324,46 @@ class ThemeManager:
             self._notify()
 
     def set_family(self, family: str):
-        if family in ("classic", "lime", "tangerine", "acrylic"):
+        if family in ("lime", "tangerine", "acrylic"):
             self.current_family = family
             self.settings.setValue("theme_family", family)
             self._notify()
 
-    def add_listener(self, callback: callable):
+    def add_listener(self, callback: Callable[[RadialThemeSpec], None]):
         if callback not in self._listeners:
             self._listeners.append(callback)
 
+    def remove_listener(self, callback: Callable[[RadialThemeSpec], None]):
+        if callback in self._listeners:
+            self._listeners.remove(callback)
+
     def _notify(self):
         theme = self.get_theme()
-        for cb in self._listeners:
+        for cb in list(self._listeners):
             try:
                 cb(theme)
             except Exception:
                 pass
+
+
+def parse_qcolor(color_str: str) -> QColor:
+    """Convierte cadenas css como 'rgba(10, 11, 13, 0.82)' o '#A3E635' a QColor."""
+    c = color_str.strip()
+    if c.startswith("#"):
+        return QColor(c)
+    if c.startswith("rgba"):
+        inside = c[c.find("(") + 1 : c.find(")")]
+        parts = [p.strip() for p in inside.split(",")]
+        if len(parts) == 4:
+            r, g, b = int(parts[0]), int(parts[1]), int(parts[2])
+            a = int(float(parts[3]) * 255)
+            return QColor(r, g, b, a)
+    if c.startswith("rgb"):
+        inside = c[c.find("(") + 1 : c.find(")")]
+        parts = [p.strip() for p in inside.split(",")]
+        if len(parts) == 3:
+            return QColor(int(parts[0]), int(parts[1]), int(parts[2]))
+    return QColor(c)
 
 
 def parse_qcolor(color_str: str) -> QColor:

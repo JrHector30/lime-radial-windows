@@ -58,6 +58,9 @@ class LimeApp(QObject):
         self.radial_menu.file_dropped.connect(self._on_files_dropped)
         self.radial_menu.tool_triggered.connect(self._on_tool_triggered)
 
+        # Ventana independiente no modal para escaneo
+        self.scan_window: Optional[FlattenPdfScanDialog] = None
+
         # 2. Detector inteligente de Shift + Drag (Sólo en Explorador/Escritorio)
         self.watcher = DragShiftWatcher(
             is_menu_visible=self.radial_menu.isVisible,
@@ -144,8 +147,10 @@ class LimeApp(QObject):
             self.thread_pool.start(task)
 
         elif name in ("APLANAR PDF", "FLATTEN PDF", "APLANAR", "FLATTEN"):
-            dialog = FlattenPdfScanDialog(paths)
-            dialog.exec()
+            self.scan_window = FlattenPdfScanDialog(paths)
+            self.scan_window.show()
+            self.scan_window.raise_()
+            self.scan_window.activateWindow()
 
         elif name == "COLLAGE":
             task = ActionTask(execute_collage, paths)

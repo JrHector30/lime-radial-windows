@@ -55,6 +55,7 @@ from .convert import (
     fitz,
 )
 from .icons import FONT_FAMILY
+from .themes import ThemeAccentPalette, ThemeManager, get_theme_accent_palette
 
 
 def pil_to_qpixmap(pil_img: Image.Image) -> QPixmap:
@@ -164,11 +165,18 @@ def draw_icon_path(painter: QPainter, icon_name: str, cx: float, cy: float, size
 class ToggleSwitch(QWidget):
     toggled = Signal(bool)
 
-    def __init__(self, checked=True, parent=None):
+    def __init__(self, checked=True, parent=None, active_color: str = "#84CC16", is_light: bool = False):
         super().__init__(parent)
         self._checked = checked
+        self._active_color = QColor(active_color)
+        self._is_light = is_light
         self.setFixedSize(38, 21)
         self.setCursor(Qt.PointingHandCursor)
+
+    def set_theme(self, active_color: str, is_light: bool = False):
+        self._active_color = QColor(active_color)
+        self._is_light = is_light
+        self.update()
 
     def isChecked(self) -> bool:
         return self._checked
@@ -185,7 +193,8 @@ class ToggleSwitch(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
-        bg = QColor("#14b8a6") if self._checked else QColor("#3f3f46")
+        off_col = QColor("#d4d4d8") if self._is_light else QColor("#3f3f46")
+        bg = self._active_color if self._checked else off_col
         p.setBrush(bg)
         p.setPen(Qt.NoPen)
         p.drawRoundedRect(0, 0, 38, 21, 10.5, 10.5)
@@ -228,7 +237,7 @@ class SliderRow(QWidget):
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         self.lbl_title = QLabel(label)
-        self.lbl_title.setStyleSheet("color: #d4d4d8; font-size: 12px; font-weight: normal;")
+        self.lbl_title.setStyleSheet(f"color: #d4d4d8; font-size: 12px; font-weight: normal; font-family: '{FONT_FAMILY}';")
         self.lbl_value = QLabel()
         self.lbl_value.setStyleSheet("color: #a1a1aa; font-family: monospace; font-size: 11.5px;")
         header.addWidget(self.lbl_title)
@@ -239,33 +248,44 @@ class SliderRow(QWidget):
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(int(min_val * self._multiplier), int(max_val * self._multiplier))
         self.slider.setValue(int(value * self._multiplier))
-        self.slider.setStyleSheet("""
-            QSlider::groove:horizontal {
-                height: 4px;
-                background: #36373b;
-                border-radius: 2px;
-            }
-            QSlider::sub-page:horizontal {
-                background: #14b8a6;
-                border-radius: 2px;
-            }
-            QSlider::handle:horizontal {
-                background: #f8fafc;
-                border: 1.5px solid rgba(0, 0, 0, 0.25);
-                width: 14px;
-                height: 14px;
-                margin: -5px 0;
-                border-radius: 7px;
-            }
-            QSlider::handle:horizontal:hover {
-                background: #ffffff;
-                border: 1.5px solid #14b8a6;
-            }
-        """)
         self.slider.valueChanged.connect(self._on_slider_change)
         layout.addWidget(self.slider)
 
         self._update_display(value)
+
+    def set_theme(self, primary_color: str, border_color: str, is_light: bool = False):
+        title_color = "#3f3f46" if is_light else "#d4d4d8"
+        value_color = "#71717a" if is_light else "#a1a1aa"
+        groove_bg = "#e4e4e7" if is_light else "#36373b"
+        handle_bg = "#ffffff" if is_light else "#f8fafc"
+        handle_border = "rgba(0, 0, 0, 0.20)" if is_light else "rgba(0, 0, 0, 0.25)"
+
+        self.lbl_title.setStyleSheet(f"color: {title_color}; font-size: 12px; font-weight: normal; font-family: '{FONT_FAMILY}';")
+        self.lbl_value.setStyleSheet(f"color: {value_color}; font-family: monospace; font-size: 11.5px;")
+
+        self.slider.setStyleSheet(f"""
+            QSlider::groove:horizontal {{
+                height: 4px;
+                background: {groove_bg};
+                border-radius: 2px;
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {primary_color};
+                border-radius: 2px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {handle_bg};
+                border: 1.5px solid {handle_border};
+                width: 14px;
+                height: 14px;
+                margin: -5px 0;
+                border-radius: 7px;
+            }}
+            QSlider::handle:horizontal:hover {{
+                background: #ffffff;
+                border: 1.5px solid {border_color};
+            }}
+        """)
 
     def _update_display(self, val: float):
         if self.is_float:
@@ -513,8 +533,10 @@ class FlattenPdfScanDialog(QDialog):
     def __init__(self, file_paths: List[str], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Aplanar PDF — Vista previa de escaneo")
+        # Ventana independiente común (no modal) para permitir seguir usando el PC y Lime Radial
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setModal(False)
         self.resize(1180, 780)
 
         self.file_paths = [str(Path(p).resolve()) for p in file_paths if os.path.exists(p)]
@@ -529,10 +551,33 @@ class FlattenPdfScanDialog(QDialog):
 
         self._pdf_doc = None
         self._temp_converted_pdf = None
-        self._load_current_document()
+        self._drag_pos = None
 
+        self.theme_mgr = ThemeManager.get_instance()
+        self.theme_mgr.add_listener(self._apply_theme)
+
+        self._load_current_document()
         self._build_ui()
+        self._apply_theme()
         self._update_previews()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton and self._drag_pos is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
 
     def _load_current_document(self):
         """Carga el documento actual con PyMuPDF o prepara renderizado fiel."""
@@ -595,106 +640,48 @@ class FlattenPdfScanDialog(QDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
 
-        card = QFrame(self)
-        card.setObjectName("scanCard")
-        card.setStyleSheet("""
-            QFrame#scanCard {
-                background-color: #141416;
-                border: 1px solid rgba(255, 255, 255, 0.10);
-                border-radius: 14px;
-            }
-            QLabel {
-                color: #f4f4f5;
-                font-family: "%s";
-            }
-        """ % FONT_FAMILY)
-        root.addWidget(card)
+        self.card = QFrame(self)
+        self.card.setObjectName("scanCard")
+        root.addWidget(self.card)
 
-        card_layout = QVBoxLayout(card)
+        card_layout = QVBoxLayout(self.card)
         card_layout.setContentsMargins(0, 0, 0, 0)
         card_layout.setSpacing(0)
 
         # ---------------- 1. Top Header ----------------
-        header = QFrame(card)
-        header.setFixedHeight(46)
-        header.setStyleSheet("background-color: #18181b; border-bottom: 1px solid rgba(255, 255, 255, 0.08);")
-        h_layout = QHBoxLayout(header)
+        self.header = QFrame(self.card)
+        self.header.setFixedHeight(46)
+        h_layout = QHBoxLayout(self.header)
         h_layout.setContentsMargins(16, 0, 16, 0)
         h_layout.setSpacing(10)
 
-        # Icono de sliders teal
-        lbl_icon = QLabel()
-        pix_icon = QPixmap(18, 18)
-        pix_icon.fill(Qt.transparent)
-        p = QPainter(pix_icon)
-        draw_icon_path(p, "sliders", 9, 9, 16, QColor("#14b8a6"))
-        p.end()
-        lbl_icon.setPixmap(pix_icon)
-        h_layout.addWidget(lbl_icon)
+        self.lbl_header_icon = QLabel()
+        h_layout.addWidget(self.lbl_header_icon)
 
-        # Título
-        lbl_title = QLabel("Aplanar PDF — Vista previa de escaneo")
-        lbl_title.setStyleSheet("font-size: 13.5px; font-weight: bold; color: #f4f4f5;")
-        h_layout.addWidget(lbl_title)
+        self.lbl_header_title = QLabel("Aplanar PDF — Vista previa de escaneo")
+        h_layout.addWidget(self.lbl_header_title)
 
         if len(self.file_paths) > 1:
-            lbl_count = QLabel(f"· {len(self.file_paths)} archivos")
-            lbl_count.setStyleSheet("font-size: 11.5px; color: #a1a1aa; font-family: monospace;")
-            h_layout.addWidget(lbl_count)
+            self.lbl_count = QLabel(f"· {len(self.file_paths)} archivos")
+            self.lbl_count.setStyleSheet("font-size: 11.5px; color: #a1a1aa; font-family: monospace;")
+            h_layout.addWidget(self.lbl_count)
+        else:
+            self.lbl_count = None
 
         h_layout.addStretch()
 
-        # Botón Restablecer
         self.btn_reset = QPushButton(" Restablecer")
         self.btn_reset.setCursor(Qt.PointingHandCursor)
-        self.btn_reset.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                border: none;
-                border-radius: 6px;
-                padding: 4px 10px;
-                color: #a1a1aa;
-                font-size: 11.5px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.06);
-                color: #ffffff;
-            }
-        """)
-        pix_rst = QPixmap(14, 14)
-        pix_rst.fill(Qt.transparent)
-        p = QPainter(pix_rst)
-        draw_icon_path(p, "rotate_ccw", 7, 7, 12, QColor("#a1a1aa"))
-        p.end()
-        self.btn_reset.setIcon(pix_rst)
         self.btn_reset.clicked.connect(self._reset_defaults)
         h_layout.addWidget(self.btn_reset)
 
-        # Botón Cerrar (×) en la esquina superior derecha
         self.btn_close = QPushButton()
         self.btn_close.setFixedSize(30, 30)
         self.btn_close.setCursor(Qt.PointingHandCursor)
-        self.btn_close.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                border: none;
-                border-radius: 7px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.09);
-            }
-        """)
-        pix_cls = QPixmap(16, 16)
-        pix_cls.fill(Qt.transparent)
-        p = QPainter(pix_cls)
-        draw_icon_path(p, "close", 8, 8, 12, QColor("#a1a1aa"))
-        p.end()
-        self.btn_close.setIcon(pix_cls)
-        self.btn_close.clicked.connect(self.reject)
+        self.btn_close.clicked.connect(self.close)
         h_layout.addWidget(self.btn_close)
 
-        card_layout.addWidget(header)
+        card_layout.addWidget(self.header)
 
         # ---------------- 2. Main Body: Sidebar + Previews ----------------
         body = QHBoxLayout()
@@ -702,47 +689,45 @@ class FlattenPdfScanDialog(QDialog):
         body.setSpacing(0)
 
         # === Sidebar izquierdo de controles (310px) ===
-        sidebar = QFrame()
-        sidebar.setFixedWidth(310)
-        sidebar.setStyleSheet("background-color: #161619; border-right: 1px solid rgba(255, 255, 255, 0.08);")
-        side_layout = QVBoxLayout(sidebar)
+        self.sidebar = QFrame()
+        self.sidebar.setFixedWidth(310)
+        side_layout = QVBoxLayout(self.sidebar)
         side_layout.setContentsMargins(12, 12, 12, 12)
         side_layout.setSpacing(10)
 
         # Card de Información de Archivo
-        card_file = QFrame()
-        card_file.setStyleSheet("background-color: #1b1b1f; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;")
-        cf_layout = QVBoxLayout(card_file)
+        self.card_file = QFrame()
+        cf_layout = QVBoxLayout(self.card_file)
         cf_layout.setContentsMargins(10, 10, 10, 10)
         cf_layout.setSpacing(4)
 
         row_f = QHBoxLayout()
         row_f.setSpacing(6)
-        lbl_clip = QLabel()
+        self.lbl_clip = QLabel()
         pix_clip = QPixmap(14, 14)
         pix_clip.fill(Qt.transparent)
         p = QPainter(pix_clip)
         draw_icon_path(p, "paperclip", 7, 7, 12, QColor("#a1a1aa"))
         p.end()
-        lbl_clip.setPixmap(pix_clip)
-        row_f.addWidget(lbl_clip)
+        self.lbl_clip.setPixmap(pix_clip)
+        row_f.addWidget(self.lbl_clip)
 
         if len(self.file_paths) > 1:
             self.combo_files = QComboBox()
             self.combo_files.addItems([Path(f).name for f in self.file_paths])
-            self.combo_files.setStyleSheet("background: transparent; color: #f4f4f5; font-size: 12px; border: none;")
+            self.combo_files.setStyleSheet(f"background: transparent; font-size: 12px; border: none; font-family: '{FONT_FAMILY}';")
             self.combo_files.currentIndexChanged.connect(self._on_file_changed)
             row_f.addWidget(self.combo_files)
         else:
-            lbl_fname = QLabel(Path(self.file_paths[0]).name)
-            lbl_fname.setStyleSheet("color: #e4e4e7; font-size: 12.5px; font-weight: 500;")
-            row_f.addWidget(lbl_fname)
+            self.lbl_fname = QLabel(Path(self.file_paths[0]).name)
+            self.lbl_fname.setStyleSheet(f"font-size: 12.5px; font-weight: 500; font-family: '{FONT_FAMILY}';")
+            row_f.addWidget(self.lbl_fname)
         cf_layout.addLayout(row_f)
 
         self.lbl_fsize = QLabel(self._get_file_size_label())
         self.lbl_fsize.setStyleSheet("color: #a1a1aa; font-family: monospace; font-size: 11px; margin-left: 20px;")
         cf_layout.addWidget(self.lbl_fsize)
-        side_layout.addWidget(card_file)
+        side_layout.addWidget(self.card_file)
 
         # ScrollArea para controles de escaneo
         scroll = QScrollArea()
@@ -756,15 +741,13 @@ class FlattenPdfScanDialog(QDialog):
         sw_layout.setSpacing(8)
 
         # Acordeón: Configuración de Escaneo
-        card_scan = QFrame()
-        card_scan.setStyleSheet("background-color: #1b1b1f; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;")
-        cs_layout = QVBoxLayout(card_scan)
+        self.card_scan = QFrame()
+        cs_layout = QVBoxLayout(self.card_scan)
         cs_layout.setContentsMargins(12, 10, 12, 12)
         cs_layout.setSpacing(10)
 
-        lbl_scan_sec = QLabel("⚙️  Configuración de escaneo")
-        lbl_scan_sec.setStyleSheet("font-size: 12.5px; font-weight: bold; color: #f4f4f5; margin-bottom: 2px;")
-        cs_layout.addWidget(lbl_scan_sec)
+        self.lbl_scan_sec = QLabel("⚙️  Configuración de escaneo")
+        cs_layout.addWidget(self.lbl_scan_sec)
 
         # Fila: Espacio de color + Borde
         row_cb = QHBoxLayout()
@@ -772,37 +755,22 @@ class FlattenPdfScanDialog(QDialog):
 
         v_col = QVBoxLayout()
         v_col.setSpacing(4)
-        lbl_c_title = QLabel("Espacio de color")
-        lbl_c_title.setStyleSheet("font-size: 11.5px; color: #d4d4d8;")
+        self.lbl_c_title = QLabel("Espacio de color")
         self.combo_color = QComboBox()
         self.combo_color.addItem("Color", "color")
         self.combo_color.addItem("Escala de Grises", "grayscale")
         self.combo_color.addItem("Blanco y Negro", "bw")
-        self.combo_color.setStyleSheet("""
-            QComboBox {
-                background-color: #121215;
-                color: #f4f4f5;
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                border-radius: 6px;
-                padding: 4px 8px;
-                font-size: 12px;
-            }
-            QComboBox:focus {
-                border: 1px solid #14b8a6;
-            }
-        """)
         self.combo_color.currentIndexChanged.connect(self._on_color_space_changed)
-        v_col.addWidget(lbl_c_title)
+        v_col.addWidget(self.lbl_c_title)
         v_col.addWidget(self.combo_color)
         row_cb.addLayout(v_col)
 
         v_bor = QVBoxLayout()
         v_bor.setSpacing(4)
-        lbl_b_title = QLabel("Borde")
-        lbl_b_title.setStyleSheet("font-size: 11.5px; color: #d4d4d8;")
+        self.lbl_b_title = QLabel("Borde")
         self.switch_border = ToggleSwitch(checked=True)
         self.switch_border.toggled.connect(self._on_border_toggled)
-        v_bor.addWidget(lbl_b_title)
+        v_bor.addWidget(self.lbl_b_title)
         v_bor.addWidget(self.switch_border)
         row_cb.addLayout(v_bor)
 
@@ -841,22 +809,19 @@ class FlattenPdfScanDialog(QDialog):
         self.slider_resolution.valueChanged.connect(lambda v: self._update_setting("resolution", int(v)))
         cs_layout.addWidget(self.slider_resolution)
 
-        sw_layout.addWidget(card_scan)
+        sw_layout.addWidget(self.card_scan)
 
         # Acordeón: Configuración de Papel
-        card_paper = QFrame()
-        card_paper.setStyleSheet("background-color: #1b1b1f; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;")
-        cp_layout = QVBoxLayout(card_paper)
+        self.card_paper = QFrame()
+        cp_layout = QVBoxLayout(self.card_paper)
         cp_layout.setContentsMargins(12, 10, 12, 10)
         cp_layout.setSpacing(8)
 
-        lbl_paper_sec = QLabel("📄  Configuración de papel")
-        lbl_paper_sec.setStyleSheet("font-size: 12.5px; font-weight: bold; color: #f4f4f5;")
-        cp_layout.addWidget(lbl_paper_sec)
+        self.lbl_paper_sec = QLabel("📄  Configuración de papel")
+        cp_layout.addWidget(self.lbl_paper_sec)
 
-        lbl_psize = QLabel("Tamaño de hoja")
-        lbl_psize.setStyleSheet("font-size: 11.5px; color: #a1a1aa;")
-        cp_layout.addWidget(lbl_psize)
+        self.lbl_psize = QLabel("Tamaño de hoja")
+        cp_layout.addWidget(self.lbl_psize)
 
         row_pbtns = QHBoxLayout()
         row_pbtns.setSpacing(6)
@@ -871,34 +836,13 @@ class FlattenPdfScanDialog(QDialog):
         self.paper_group.addButton(self.btn_letter)
         self.paper_group.setExclusive(True)
 
-        style_pbtn = """
-            QPushButton {
-                background-color: #121215;
-                border: 1px solid rgba(255, 255, 255, 0.10);
-                border-radius: 5px;
-                padding: 5px 0;
-                color: #a1a1aa;
-                font-size: 12px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                color: #ffffff;
-            }
-            QPushButton:checked {
-                background-color: rgba(20, 184, 166, 0.15);
-                border: 1px solid #14b8a6;
-                color: #ffffff;
-            }
-        """
-        self.btn_a4.setStyleSheet(style_pbtn)
-        self.btn_letter.setStyleSheet(style_pbtn)
         self.btn_a4.clicked.connect(lambda: self._set_paper_size("a4"))
         self.btn_letter.clicked.connect(lambda: self._set_paper_size("letter"))
         row_pbtns.addWidget(self.btn_a4)
         row_pbtns.addWidget(self.btn_letter)
         cp_layout.addLayout(row_pbtns)
 
-        sw_layout.addWidget(card_paper)
+        sw_layout.addWidget(self.card_paper)
         sw_layout.addStretch()
 
         scroll.setWidget(scroll_widget)
@@ -908,44 +852,20 @@ class FlattenPdfScanDialog(QDialog):
         self.btn_generate = QPushButton("  Generar PDF escaneado")
         self.btn_generate.setFixedHeight(40)
         self.btn_generate.setCursor(Qt.PointingHandCursor)
-        self.btn_generate.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(20, 184, 166, 0.12);
-                border: 1px solid #14b8a6;
-                border-radius: 8px;
-                color: #ffffff;
-                font-size: 13px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: rgba(20, 184, 166, 0.22);
-            }
-            QPushButton:pressed {
-                background-color: #14b8a6;
-            }
-        """)
-        pix_gen = QPixmap(16, 16)
-        pix_gen.fill(Qt.transparent)
-        p = QPainter(pix_gen)
-        draw_icon_path(p, "file_check", 8, 8, 14, QColor("#2dd4bf"))
-        p.end()
-        self.btn_generate.setIcon(pix_gen)
         self.btn_generate.clicked.connect(self._on_generate_clicked)
         side_layout.addWidget(self.btn_generate)
 
-        body.addWidget(sidebar)
+        body.addWidget(self.sidebar)
 
         # === Right Preview Area (Comparativa Antes y Después) ===
-        right_panel = QFrame()
-        right_panel.setStyleSheet("background-color: #101012;")
-        rp_layout = QVBoxLayout(right_panel)
+        self.right_panel = QFrame()
+        rp_layout = QVBoxLayout(self.right_panel)
         rp_layout.setContentsMargins(0, 0, 0, 0)
         rp_layout.setSpacing(0)
 
         # Canvas central con los dos documentos
-        center_canvas = QFrame()
-        center_canvas.setStyleSheet("background-color: #101012;")
-        canvas_layout = QHBoxLayout(center_canvas)
+        self.center_canvas = QFrame()
+        canvas_layout = QHBoxLayout(self.center_canvas)
         canvas_layout.setContentsMargins(30, 20, 30, 20)
         canvas_layout.setSpacing(30)
         canvas_layout.setAlignment(Qt.AlignCenter)
@@ -954,9 +874,8 @@ class FlattenPdfScanDialog(QDialog):
         col_before = QVBoxLayout()
         col_before.setSpacing(8)
         col_before.setAlignment(Qt.AlignCenter)
-        lbl_b_title = QLabel("Antes (PDF plano)")
-        lbl_b_title.setStyleSheet("font-size: 11.5px; font-weight: 500; color: #9ca3af;")
-        col_before.addWidget(lbl_b_title, 0, Qt.AlignCenter)
+        self.lbl_preview_before = QLabel("Antes (PDF plano)")
+        col_before.addWidget(self.lbl_preview_before, 0, Qt.AlignCenter)
 
         self.view_before = QLabel()
         self.view_before.setFixedSize(330, 460)
@@ -973,9 +892,8 @@ class FlattenPdfScanDialog(QDialog):
         col_after = QVBoxLayout()
         col_after.setSpacing(8)
         col_after.setAlignment(Qt.AlignCenter)
-        lbl_a_title = QLabel("Después (Vista previa escaneada)")
-        lbl_a_title.setStyleSheet("font-size: 11.5px; font-weight: bold; color: #2dd4bf;")
-        col_after.addWidget(lbl_a_title, 0, Qt.AlignCenter)
+        self.lbl_preview_after = QLabel("Después (Vista previa escaneada)")
+        col_after.addWidget(self.lbl_preview_after, 0, Qt.AlignCenter)
 
         self.view_after = QLabel()
         self.view_after.setFixedSize(330, 460)
@@ -987,26 +905,23 @@ class FlattenPdfScanDialog(QDialog):
         col_after.addWidget(self.view_after, 0, Qt.AlignCenter)
         canvas_layout.addLayout(col_after)
 
-        rp_layout.addWidget(center_canvas, 1)
+        rp_layout.addWidget(self.center_canvas, 1)
 
         # Barra inferior de Paginación y Miniaturas
-        bottom_strip = QFrame()
-        bottom_strip.setStyleSheet("background-color: #18181b; border-top: 1px solid rgba(255, 255, 255, 0.08);")
-        bs_layout = QVBoxLayout(bottom_strip)
+        self.bottom_strip = QFrame()
+        bs_layout = QVBoxLayout(self.bottom_strip)
         bs_layout.setContentsMargins(16, 8, 16, 8)
         bs_layout.setSpacing(6)
 
         # Fila de control de página
         row_page = QHBoxLayout()
         self.lbl_page_info = QLabel("Página 1 de 2")
-        self.lbl_page_info.setStyleSheet("font-size: 12px; color: #a1a1aa; font-family: monospace;")
         row_page.addWidget(self.lbl_page_info)
         row_page.addStretch()
 
         self.btn_prev_page = QPushButton()
         self.btn_prev_page.setFixedSize(28, 28)
         self.btn_prev_page.setCursor(Qt.PointingHandCursor)
-        self.btn_prev_page.setStyleSheet("background-color: #222226; border: 1px solid rgba(255,255,255,0.08); border-radius: 5px;")
         pix_pl = QPixmap(14, 14)
         pix_pl.fill(Qt.transparent)
         p = QPainter(pix_pl)
@@ -1019,7 +934,6 @@ class FlattenPdfScanDialog(QDialog):
         self.btn_next_page = QPushButton()
         self.btn_next_page.setFixedSize(28, 28)
         self.btn_next_page.setCursor(Qt.PointingHandCursor)
-        self.btn_next_page.setStyleSheet("background-color: #222226; border: 1px solid rgba(255,255,255,0.08); border-radius: 5px;")
         pix_pr = QPixmap(14, 14)
         pix_pr.fill(Qt.transparent)
         p = QPainter(pix_pr)
@@ -1029,13 +943,11 @@ class FlattenPdfScanDialog(QDialog):
         self.btn_next_page.clicked.connect(self._next_page)
         row_page.addWidget(self.btn_next_page)
 
-        lbl_sep = QLabel("|")
-        lbl_sep.setStyleSheet("color: rgba(255,255,255,0.1); margin: 0 4px;")
-        row_page.addWidget(lbl_sep)
+        self.lbl_sep = QLabel("|")
+        row_page.addWidget(self.lbl_sep)
 
         self.btn_toggle_thumbs = QPushButton("Ocultar miniaturas")
         self.btn_toggle_thumbs.setCursor(Qt.PointingHandCursor)
-        self.btn_toggle_thumbs.setStyleSheet("background: transparent; border: none; color: #a1a1aa; font-size: 12px;")
         self.btn_toggle_thumbs.clicked.connect(self._toggle_thumbnails)
         row_page.addWidget(self.btn_toggle_thumbs)
 
@@ -1049,12 +961,241 @@ class FlattenPdfScanDialog(QDialog):
         self.thumbs_layout.setAlignment(Qt.AlignLeft)
         bs_layout.addWidget(self.thumbs_container)
 
-        self._render_thumbnails()
-
-        rp_layout.addWidget(bottom_strip)
-        body.addWidget(right_panel, 1)
+        rp_layout.addWidget(self.bottom_strip)
+        body.addWidget(self.right_panel, 1)
 
         card_layout.addLayout(body, 1)
+
+    def _apply_theme(self, theme=None):
+        """Aplica la paleta de acentos dinámicos y adapta superficies a modo Claro u Oscuro."""
+        palette = self.theme_mgr.get_accent_palette()
+        is_light = (self.theme_mgr.current_mode == "light")
+        font = FONT_FAMILY
+
+        if is_light:
+            card_bg = "#FFFFFF"
+            card_border = "#E4E4E7"
+            header_bg = "#FFFFFF"
+            header_border = "#E4E4E7"
+            title_color = "#18181B"
+            btn_txt = "#71717A"
+            btn_hover = "#F4F4F5"
+            sidebar_bg = "#F4F4F5"
+            sidebar_border = "#E4E4E7"
+            subcard_bg = "#FFFFFF"
+            subcard_border = "#E4E4E7"
+            text_primary = "#18181B"
+            text_secondary = "#71717A"
+            canvas_bg = "#EAECF0"
+            bottom_bg = "#FFFFFF"
+            bottom_border = "#E4E4E7"
+            btn_page_bg = "#F4F4F5"
+            btn_page_border = "#E4E4E7"
+            combo_bg = "#FFFFFF"
+            combo_border = "#D4D4D8"
+            sep_col = "#E4E4E7"
+        else:
+            card_bg = "#141416"
+            card_border = "rgba(255, 255, 255, 0.12)"
+            header_bg = "#18181B"
+            header_border = "rgba(255, 255, 255, 0.08)"
+            title_color = "#F4F4F5"
+            btn_txt = "#A1A1AA"
+            btn_hover = "rgba(255, 255, 255, 0.08)"
+            sidebar_bg = "#161619"
+            sidebar_border = "rgba(255, 255, 255, 0.08)"
+            subcard_bg = "#1B1B1F"
+            subcard_border = "rgba(255, 255, 255, 0.08)"
+            text_primary = "#F4F4F5"
+            text_secondary = "#A1A1AA"
+            canvas_bg = "#101012"
+            bottom_bg = "#18181B"
+            bottom_border = "rgba(255, 255, 255, 0.08)"
+            btn_page_bg = "#222226"
+            btn_page_border = "rgba(255, 255, 255, 0.08)"
+            combo_bg = "#121215"
+            combo_border = "rgba(255, 255, 255, 0.14)"
+            sep_col = "rgba(255, 255, 255, 0.10)"
+
+        self.card.setStyleSheet(f"""
+            QFrame#scanCard {{
+                background-color: {card_bg};
+                border: 1.5px solid {card_border};
+                border-radius: 14px;
+            }}
+            QLabel {{
+                color: {text_primary};
+                font-family: "{font}";
+            }}
+        """)
+
+        self.header.setStyleSheet(f"background-color: {header_bg}; border-bottom: 1px solid {header_border};")
+        self.lbl_header_title.setStyleSheet(f"font-size: 13.5px; font-weight: bold; color: {title_color}; font-family: '{font}';")
+
+        if hasattr(self, "lbl_fname"):
+            self.lbl_fname.setStyleSheet(f"color: {text_primary}; font-size: 12.5px; font-weight: 500; font-family: '{font}';")
+
+        # Icono dinámico de sliders en header
+        pix_icon = QPixmap(18, 18)
+        pix_icon.fill(Qt.transparent)
+        p = QPainter(pix_icon)
+        draw_icon_path(p, "sliders", 9, 9, 16, QColor(palette.primary))
+        p.end()
+        self.lbl_header_icon.setPixmap(pix_icon)
+
+        # Botón Restablecer
+        self.btn_reset.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 6px;
+                padding: 4px 10px;
+                color: {btn_txt};
+                font-size: 11.5px;
+                font-weight: 500;
+                font-family: '{font}';
+            }}
+            QPushButton:hover {{
+                background-color: {btn_hover};
+                color: {title_color};
+            }}
+        """)
+        pix_rst = QPixmap(14, 14)
+        pix_rst.fill(Qt.transparent)
+        p = QPainter(pix_rst)
+        draw_icon_path(p, "rotate_ccw", 7, 7, 12, QColor(btn_txt))
+        p.end()
+        self.btn_reset.setIcon(pix_rst)
+
+        # Botón Cerrar
+        self.btn_close.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 7px;
+            }}
+            QPushButton:hover {{
+                background-color: {btn_hover};
+            }}
+        """)
+        pix_cls = QPixmap(16, 16)
+        pix_cls.fill(Qt.transparent)
+        p = QPainter(pix_cls)
+        draw_icon_path(p, "close", 8, 8, 12, QColor(btn_txt))
+        p.end()
+        self.btn_close.setIcon(pix_cls)
+
+        # Sidebar & inner cards
+        self.sidebar.setStyleSheet(f"background-color: {sidebar_bg}; border-right: 1px solid {sidebar_border};")
+        self.card_file.setStyleSheet(f"background-color: {subcard_bg}; border: 1px solid {subcard_border}; border-radius: 8px;")
+        self.card_scan.setStyleSheet(f"background-color: {subcard_bg}; border: 1px solid {subcard_border}; border-radius: 8px;")
+        self.card_paper.setStyleSheet(f"background-color: {subcard_bg}; border: 1px solid {subcard_border}; border-radius: 8px;")
+
+        self.lbl_scan_sec.setStyleSheet(f"font-size: 12.5px; font-weight: bold; color: {text_primary}; margin-bottom: 2px; font-family: '{font}';")
+        self.lbl_paper_sec.setStyleSheet(f"font-size: 12.5px; font-weight: bold; color: {text_primary}; font-family: '{font}';")
+        self.lbl_c_title.setStyleSheet(f"font-size: 11.5px; color: {text_secondary}; font-family: '{font}';")
+        self.lbl_b_title.setStyleSheet(f"font-size: 11.5px; color: {text_secondary}; font-family: '{font}';")
+        self.lbl_psize.setStyleSheet(f"font-size: 11.5px; color: {text_secondary}; font-family: '{font}';")
+
+        # Dropdown
+        self.combo_color.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {combo_bg};
+                color: {text_primary};
+                border: 1px solid {combo_border};
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-size: 12px;
+                font-family: '{font}';
+            }}
+            QComboBox:focus {{
+                border: 1.5px solid {palette.border};
+            }}
+        """)
+
+        # Interruptor Borde
+        self.switch_border.set_theme(palette.primary, is_light=is_light)
+
+        # 8 Sliders en tiempo real
+        for s in (
+            self.slider_rotate,
+            self.slider_variance,
+            self.slider_brightness,
+            self.slider_contrast,
+            self.slider_blur,
+            self.slider_noise,
+            self.slider_yellowing,
+            self.slider_resolution,
+        ):
+            s.set_theme(palette.primary, palette.border, is_light=is_light)
+
+        # Botones de hoja (A4 / Carta)
+        pbtn_style = f"""
+            QPushButton {{
+                background-color: {combo_bg};
+                border: 1px solid {combo_border};
+                border-radius: 5px;
+                padding: 5px 0;
+                color: {text_secondary};
+                font-size: 12px;
+                font-weight: 500;
+                font-family: '{font}';
+            }}
+            QPushButton:hover {{
+                color: {text_primary};
+            }}
+            QPushButton:checked {{
+                background-color: {palette.soft_bg};
+                border: 1.5px solid {palette.border};
+                color: {palette.text};
+                font-weight: bold;
+            }}
+        """
+        self.btn_a4.setStyleSheet(pbtn_style)
+        self.btn_letter.setStyleSheet(pbtn_style)
+
+        # Botón CTA Generar PDF escaneado
+        self.btn_generate.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {palette.soft_bg};
+                border: 1.5px solid {palette.border};
+                border-radius: 8px;
+                color: {palette.cta_text};
+                font-size: 13px;
+                font-weight: bold;
+                font-family: '{font}';
+            }}
+            QPushButton:hover {{
+                background-color: {palette.soft_bg_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {palette.solid_bg};
+                color: {palette.solid_text};
+            }}
+        """)
+        pix_gen = QPixmap(16, 16)
+        pix_gen.fill(Qt.transparent)
+        p = QPainter(pix_gen)
+        draw_icon_path(p, "file_check", 8, 8, 14, QColor(palette.primary))
+        p.end()
+        self.btn_generate.setIcon(pix_gen)
+
+        # Canvas central & etiquetas Antes/Después
+        self.right_panel.setStyleSheet(f"background-color: {canvas_bg};")
+        self.center_canvas.setStyleSheet(f"background-color: {canvas_bg};")
+        self.lbl_preview_before.setStyleSheet(f"font-size: 11.5px; font-weight: 500; color: {text_secondary}; font-family: '{font}';")
+        self.lbl_preview_after.setStyleSheet(f"font-size: 11.5px; font-weight: bold; color: {palette.text}; font-family: '{font}';")
+
+        # Barra inferior
+        self.bottom_strip.setStyleSheet(f"background-color: {bottom_bg}; border-top: 1px solid {bottom_border};")
+        self.lbl_page_info.setStyleSheet(f"font-size: 12px; color: {text_secondary}; font-family: monospace;")
+        self.btn_prev_page.setStyleSheet(f"background-color: {btn_page_bg}; border: 1px solid {btn_page_border}; border-radius: 5px;")
+        self.btn_next_page.setStyleSheet(f"background-color: {btn_page_bg}; border: 1px solid {btn_page_border}; border-radius: 5px;")
+        self.lbl_sep.setStyleSheet(f"color: {sep_col}; margin: 0 4px;")
+        self.btn_toggle_thumbs.setStyleSheet(f"background: transparent; border: none; color: {text_secondary}; font-size: 12px; font-family: '{font}';")
+
+        # Actualizar miniaturas
+        self._render_thumbnails()
 
     def _get_file_size_label(self) -> str:
         try:
@@ -1069,11 +1210,17 @@ class FlattenPdfScanDialog(QDialog):
         return f"428 KB · {self.settings.resolution} PPI"
 
     def _render_thumbnails(self):
-        # Limpiar miniaturas existentes
+        if not hasattr(self, "thumbs_layout"):
+            return
+
         while self.thumbs_layout.count():
             item = self.thumbs_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+
+        palette = self.theme_mgr.get_accent_palette()
+        is_light = (self.theme_mgr.current_mode == "light")
+        text_secondary = "#71717A" if is_light else "#A1A1AA"
 
         for p_num in range(1, min(6, self.total_pages + 1)):
             thumb_btn = QPushButton()
@@ -1081,15 +1228,14 @@ class FlattenPdfScanDialog(QDialog):
             thumb_btn.setCursor(Qt.PointingHandCursor)
             is_active = (p_num == self.active_page)
 
-            border_col = "#14b8a6" if is_active else "transparent"
+            border_col = palette.primary if is_active else ("#E4E4E7" if is_light else "rgba(255, 255, 255, 0.12)")
             thumb_btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: #ffffff;
                     border: 2px solid {border_col};
-                    border-radius: 3px;
+                    border-radius: 4px;
                 }}
             """)
-            # Renderizar miniatura
             base_img = self._get_page_image(p_num)
             thumb_img = base_img.resize((46, 62), Image.Resampling.BOX)
             thumb_btn.setIcon(pil_to_qpixmap(thumb_img))
@@ -1101,7 +1247,9 @@ class FlattenPdfScanDialog(QDialog):
             col.setSpacing(2)
             col.addWidget(thumb_btn, 0, Qt.AlignCenter)
             lbl_num = QLabel(str(p_num))
-            lbl_num.setStyleSheet(f"font-size: 11px; font-family: monospace; color: {'#2dd4bf' if is_active else '#71717a'};")
+            num_color = palette.text if is_active else text_secondary
+            num_weight = "bold" if is_active else "normal"
+            lbl_num.setStyleSheet(f"font-size: 11px; font-family: monospace; color: {num_color}; font-weight: {num_weight};")
             col.addWidget(lbl_num, 0, Qt.AlignCenter)
 
             w = QWidget()
@@ -1217,14 +1365,13 @@ class FlattenPdfScanDialog(QDialog):
                     counter += 1
 
                 self._process_single_scanned_pdf(src, out_pdf)
-            self.accept()
+            self.close()
         except Exception as e:
             print(f"[Scan PDF Generate Error]: {e}", file=sys.stderr)
-            self.accept()
+            self.close()
 
     def _process_single_scanned_pdf(self, src: Path, out_pdf: Path):
         """Procesa todas las páginas del archivo aplicando los efectos de escaneo a resolución final."""
-        # Asegurar PDF inicial
         temp_input = Path(tempfile.gettempdir()) / f"lime_in_{uuid.uuid4().hex[:8]}.pdf"
         try:
             if not ensure_pdf_from_any(src, temp_input):
@@ -1240,7 +1387,6 @@ class FlattenPdfScanDialog(QDialog):
                 pix = page.get_pixmap(dpi=res, alpha=False)
                 pil_page = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-                # Aplicar efectos completos de escaneado
                 scanned_pil = apply_scan_effects_to_image(
                     pil_page,
                     self.settings,
@@ -1248,7 +1394,6 @@ class FlattenPdfScanDialog(QDialog):
                     preview_scale=res / 140.0,
                 )
 
-                # Guardar página en documento final
                 buf = io.BytesIO()
                 scanned_pil.save(buf, format="JPEG", quality=90, optimize=True)
                 buf.seek(0)
@@ -1267,6 +1412,8 @@ class FlattenPdfScanDialog(QDialog):
                     pass
 
     def _cleanup(self):
+        if hasattr(self, "theme_mgr"):
+            self.theme_mgr.remove_listener(self._apply_theme)
         if self._pdf_doc:
             try:
                 self._pdf_doc.close()
@@ -1280,15 +1427,6 @@ class FlattenPdfScanDialog(QDialog):
                 pass
             self._temp_converted_pdf = None
 
-    def accept(self):
-        self._cleanup()
-        super().accept()
-
-    def reject(self):
-        self._cleanup()
-        super().reject()
-
     def closeEvent(self, event):
         self._cleanup()
-        super().closeEvent(event)
-        super().closeEvent(event)
+        event.accept()
