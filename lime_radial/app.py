@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QApplication
 from .about import AboutDialog
 from .convert import convert_files
 from .radial import RadialMenu
+from .scan_modal import FlattenPdfScanDialog
 from .tools_ui import (
     AddBgDialog,
     AnnotateImageDialog,
@@ -143,8 +144,8 @@ class LimeApp(QObject):
             self.thread_pool.start(task)
 
         elif name in ("APLANAR PDF", "FLATTEN PDF", "APLANAR", "FLATTEN"):
-            task = ActionTask(convert_files, paths, "APLANAR PDF")
-            self.thread_pool.start(task)
+            dialog = FlattenPdfScanDialog(paths)
+            dialog.exec()
 
         elif name == "COLLAGE":
             task = ActionTask(execute_collage, paths)

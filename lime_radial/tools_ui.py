@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
 )
 
 from .icons import FONT_FAMILY
+from .scan_modal import FlattenPdfScanDialog
 
 GLASS_DIALOG_STYLESHEET = f"""
     QWidget#glassCard {{
