@@ -18,9 +18,11 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
+import uuid
 import zipfile
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from PIL import Image, ImageOps
 
@@ -338,9 +340,12 @@ def convert_office_to_pdf_native(source_path: Path, out_pdf_path: Path) -> bool:
             word.DisplayAlerts = False
             doc = word.Documents.Open(src_abs, ReadOnly=True)
             doc.SaveAs(out_abs, FileFormat=17)  # 17 = wdFormatPDF
-            doc.Close()
-            word.Quit()
-            return True
+            doc.Close(False)
+            try:
+                word.Quit()
+            except Exception:
+                pass
+            return out_pdf_path.exists() and out_pdf_path.stat().st_size > 0
         elif ext in (".xlsx", ".xls"):
             excel = win32com.client.Dispatch("Excel.Application")
             excel.Visible = False
@@ -348,27 +353,176 @@ def convert_office_to_pdf_native(source_path: Path, out_pdf_path: Path) -> bool:
             wb = excel.Workbooks.Open(src_abs, ReadOnly=True)
             wb.ExportAsFixedFormat(0, out_abs)  # 0 = xlTypePDF
             wb.Close(False)
-            excel.Quit()
-            return True
+            try:
+                excel.Quit()
+            except Exception:
+                pass
+            return out_pdf_path.exists() and out_pdf_path.stat().st_size > 0
         elif ext in (".pptx", ".ppt"):
             ppt = win32com.client.Dispatch("PowerPoint.Application")
             try:
-                prs = ppt.Presentations.Open(src_abs, True, False, False)
+                prs = ppt.Presentations.Open(src_abs, -1, 0, 0)
             except Exception:
                 prs = ppt.Presentations.Open(src_abs)
             prs.SaveAs(out_abs, 32)  # 32 = ppSaveAsPDF
             prs.Close()
-            ppt.Quit()
-            return True
+            try:
+                if getattr(ppt.Presentations, "Count", 0) == 0:
+                    ppt.Quit()
+            except Exception:
+                pass
+            return out_pdf_path.exists() and out_pdf_path.stat().st_size > 0
     except Exception as e:
         print(f"[Office to PDF error]: {e}", file=sys.stderr)
+    return False
+
+
+def convert_pptx_to_pdf_pymupdf(source_path: Path, out_pdf_path: Path) -> bool:
+    """Genera un PDF multipágina fiel donde cada diapositiva es una página independiente."""
+    if not (PPTX_SUPPORTED and PYMUPDF_SUPPORTED):
+        return False
+    try:
+        prs = pptx.Presentation(str(source_path))
+        doc = fitz.open()
+        
+        w_pt = prs.slide_width.pt if hasattr(prs, "slide_width") else 960.0
+        h_pt = prs.slide_height.pt if hasattr(prs, "slide_height") else 540.0
+        
+        for slide in prs.slides:
+            page = doc.new_page(width=w_pt, height=h_pt)
+            page.draw_rect(fitz.Rect(0, 0, w_pt, h_pt), color=None, fill=(0.98, 0.98, 0.99))
+            
+            for shape in slide.shapes:
+                if hasattr(shape, "image"):
+                    try:
+                        x, y = shape.left.pt, shape.top.pt
+                        w, h = shape.width.pt, shape.height.pt
+                        rect = fitz.Rect(x, y, x + w, y + h)
+                        page.insert_image(rect, stream=shape.image.blob)
+                    except Exception:
+                        pass
+                
+                if shape.has_text_frame:
+                    try:
+                        x, y = shape.left.pt, shape.top.pt
+                        w, h = shape.width.pt, shape.height.pt
+                        t = shape.text_frame.text.strip()
+                        if t:
+                            rect = fitz.Rect(x, y, x + w, y + h)
+                            fsize = 22 if shape == slide.shapes.title else 14
+                            page.insert_textbox(rect, t, fontsize=fsize, fontname="helv", color=(0.12, 0.12, 0.12))
+                    except Exception:
+                        pass
+
+        if len(doc) > 0:
+            doc.save(str(out_pdf_path), deflate=True)
+            doc.close()
+            return True
+        doc.close()
+    except Exception as e:
+        print(f"[PPTX PyMuPDF fallback error]: {e}", file=sys.stderr)
+    return False
+
+
+def convert_xlsx_to_pdf_pymupdf(source_path: Path, out_pdf_path: Path) -> bool:
+    """Genera un PDF con todas las hojas de cálculo tabuladas limpiamente."""
+    if not (OPENPYXL_SUPPORTED and PYMUPDF_SUPPORTED):
+        return False
+    try:
+        wb = openpyxl.load_workbook(str(source_path), data_only=True)
+        doc = fitz.open()
+        
+        for sheet in wb.worksheets:
+            page = doc.new_page(width=842, height=595)
+            page.insert_text(fitz.Point(40, 45), f"Hoja: {sheet.title}", fontsize=16, fontname="helv", color=(0.1, 0.3, 0.1))
+            
+            y = 75
+            max_rows = 45
+            for r_idx, row in enumerate(sheet.iter_rows(values_only=True)):
+                if r_idx > max_rows:
+                    page.insert_text(fitz.Point(40, y + 15), f"... ({sheet.max_row - max_rows} filas adicionales)", fontsize=10, fontname="helv", color=(0.5, 0.5, 0.5))
+                    break
+                row_vals = [str(c) if c is not None else "" for c in row]
+                if not any(row_vals):
+                    continue
+                line_str = "  |  ".join(row_vals[:12])
+                page.insert_text(fitz.Point(40, y), line_str[:130], fontsize=9, fontname="helv", color=(0.15, 0.15, 0.15))
+                y += 18
+                if y > 560:
+                    page = doc.new_page(width=842, height=595)
+                    y = 50
+
+        if len(doc) > 0:
+            doc.save(str(out_pdf_path), deflate=True)
+            doc.close()
+            return True
+        doc.close()
+    except Exception as e:
+        print(f"[XLSX PyMuPDF fallback error]: {e}", file=sys.stderr)
+    return False
+
+
+def ensure_pdf_from_any(source_path: Path, out_pdf_path: Path) -> bool:
+    """
+    Convierte cualquier archivo soportado (Office, imágenes, texto, etc.) a PDF multipágina.
+    Garantiza que el archivo de salida exista y sea un PDF válido.
+    """
+    ext = source_path.suffix.lower()
+    
+    if ext == ".pdf":
+        shutil.copy2(source_path, out_pdf_path)
+        return True
+
+    # 1. Intentar conversión nativa con Microsoft Office COM
+    if ext in (".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt"):
+        if convert_office_to_pdf_native(source_path, out_pdf_path):
+            return True
+
+    # 2. Si es PPT/PPTX y COM falló o no está instalado, usar el renderizador fiel de diapositivas
+    if ext in (".pptx", ".ppt"):
+        if convert_pptx_to_pdf_pymupdf(source_path, out_pdf_path):
+            return True
+
+    # 3. Si es XLSX/XLS y COM falló, usar renderizador tabular
+    if ext in (".xlsx", ".xls"):
+        if convert_xlsx_to_pdf_pymupdf(source_path, out_pdf_path):
+            return True
+
+    # 4. Si es imagen, convertir directamente a PDF
+    if ext in IMAGE_EXTENSIONS:
+        try:
+            im = open_source_image(source_path)
+            im = flatten_alpha(im)
+            im.save(str(out_pdf_path), "PDF", resolution=150.0)
+            return True
+        except Exception:
+            pass
+
+    # 5. Documentos de texto / Markdown / fallback general
+    if PYMUPDF_SUPPORTED:
+        try:
+            txt, _, _ = extract_document_text_and_md(source_path)
+            doc = fitz.open()
+            lines = txt.splitlines() if txt else ["(Documento sin texto legible)"]
+            lines_per_page = 45
+            for page_start in range(0, max(1, len(lines)), lines_per_page):
+                page = doc.new_page(width=595, height=842)
+                rect = fitz.Rect(50, 50, 545, 792)
+                chunk = "\n".join(lines[page_start:page_start + lines_per_page])
+                page.insert_textbox(rect, chunk, fontsize=10, fontname="helv")
+            doc.save(str(out_pdf_path))
+            doc.close()
+            return True
+        except Exception:
+            pass
+
     return False
 
 
 def convert_document(source_file: str | Path, target_format: str) -> List[Path]:
     """Convierte Word, Excel, PowerPoint, CSV, TSV a los formatos objetivo soportados."""
     src = Path(source_file)
-    fmt = target_format.upper().replace("TO ", "").strip()
+    fmt = target_format.upper().replace("TO ", "").replace("A ", "").strip()
     txt, md, doc_html = extract_document_text_and_md(src)
     outputs = []
 
@@ -399,7 +553,6 @@ def convert_document(source_file: str | Path, target_format: str) -> List[Path]:
 
     elif fmt == "CSV":
         out = get_unique_output_path(src, ".csv")
-        # Si es xlsx o tsv, convertir a csv estándar
         if src.suffix.lower() in (".xlsx", ".xls") and OPENPYXL_SUPPORTED:
             wb = openpyxl.load_workbook(src, data_only=True)
             ws = wb.active
@@ -432,96 +585,81 @@ def convert_document(source_file: str | Path, target_format: str) -> List[Path]:
 
     elif fmt in ("PDF", "CREAR PDF", "CREATE PDF"):
         out_pdf = get_unique_output_path(src, ".pdf")
-        if not convert_office_to_pdf_native(src, out_pdf):
-            if PYMUPDF_SUPPORTED:
-                doc = fitz.open()
-                page = doc.new_page(width=595, height=842)  # A4
-                rect = fitz.Rect(50, 50, 545, 792)
-                page.insert_textbox(rect, txt[:15000], fontsize=11, fontname="helv")
-                doc.save(str(out_pdf))
-                doc.close()
-        outputs.append(out_pdf)
+        if ensure_pdf_from_any(src, out_pdf):
+            outputs.append(out_pdf)
 
     elif fmt in ("DIVIDIR PDF", "SPLIT PDF", "DIVIDIR", "SPLIT"):
-        out_pdf = src.parent / f"_temp_split_{src.stem}.pdf"
-        if not convert_office_to_pdf_native(src, out_pdf):
-            if PYMUPDF_SUPPORTED:
-                doc = fitz.open()
-                page = doc.new_page(width=595, height=842)
-                rect = fitz.Rect(50, 50, 545, 792)
-                page.insert_textbox(rect, txt[:15000], fontsize=11, fontname="helv")
-                doc.save(str(out_pdf))
-                doc.close()
-        if out_pdf.exists():
-            outputs = split_pdf(out_pdf)
-            try:
-                out_pdf.unlink()
-            except Exception:
-                pass
-            return outputs
+        temp_pdf = Path(tempfile.gettempdir()) / f"lime_split_{uuid.uuid4().hex[:8]}.pdf"
+        try:
+            if ensure_pdf_from_any(src, temp_pdf):
+                outputs = split_pdf(temp_pdf, output_stem=src.stem, output_dir=src.parent)
+        finally:
+            if temp_pdf.exists():
+                try:
+                    temp_pdf.unlink()
+                except Exception:
+                    pass
+        return outputs
 
     elif fmt in ("APLANAR PDF", "FLATTEN PDF", "APLANAR", "FLATTEN"):
-        out_pdf = src.parent / f"_temp_flat_{src.stem}.pdf"
-        if not convert_office_to_pdf_native(src, out_pdf):
-            if PYMUPDF_SUPPORTED:
-                doc = fitz.open()
-                page = doc.new_page(width=595, height=842)
-                rect = fitz.Rect(50, 50, 545, 792)
-                page.insert_textbox(rect, txt[:15000], fontsize=11, fontname="helv")
-                doc.save(str(out_pdf))
-                doc.close()
-        if out_pdf.exists():
-            out_flat = flatten_pdf(out_pdf)
-            try:
-                out_pdf.unlink()
-            except Exception:
-                pass
-            return [out_flat]
+        temp_pdf = Path(tempfile.gettempdir()) / f"lime_flat_{uuid.uuid4().hex[:8]}.pdf"
+        try:
+            if ensure_pdf_from_any(src, temp_pdf):
+                out_flat = flatten_pdf(temp_pdf, output_stem=src.stem, output_dir=src.parent)
+                outputs.append(out_flat)
+        finally:
+            if temp_pdf.exists():
+                try:
+                    temp_pdf.unlink()
+                except Exception:
+                    pass
+        return outputs
 
     elif fmt in ("COMPRIMIR", "COMPRESS"):
-        out_pdf = get_unique_output_path(src, ".pdf")
-        if not convert_office_to_pdf_native(src, out_pdf):
-            if PYMUPDF_SUPPORTED:
-                doc = fitz.open()
-                page = doc.new_page(width=595, height=842)
-                rect = fitz.Rect(50, 50, 545, 792)
-                page.insert_textbox(rect, txt[:15000], fontsize=11, fontname="helv")
-                doc.save(str(out_pdf))
+        temp_pdf = Path(tempfile.gettempdir()) / f"lime_comp_{uuid.uuid4().hex[:8]}.pdf"
+        try:
+            if ensure_pdf_from_any(src, temp_pdf) and PYMUPDF_SUPPORTED:
+                out_comp = src.parent / f"{src.stem}_comprimido.pdf"
+                counter = 1
+                while out_comp.exists():
+                    out_comp = src.parent / f"{src.stem}_comprimido ({counter}).pdf"
+                    counter += 1
+                doc = fitz.open(temp_pdf)
+                doc.save(str(out_comp), garbage=4, deflate=True, clean=True)
                 doc.close()
-        if out_pdf.exists() and PYMUPDF_SUPPORTED:
-            doc = fitz.open(out_pdf)
-            doc.save(str(out_pdf), garbage=4, deflate=True, clean=True)
-            doc.close()
-        outputs.append(out_pdf)
+                outputs.append(out_comp)
+        finally:
+            if temp_pdf.exists():
+                try:
+                    temp_pdf.unlink()
+                except Exception:
+                    pass
+        return outputs
 
     elif fmt in ("JPG", "JPEG", "PNG"):
-        out_pdf = src.parent / f"_temp_{src.stem}.pdf"
-        if not convert_office_to_pdf_native(src, out_pdf):
-            if PYMUPDF_SUPPORTED:
-                doc = fitz.open()
-                page = doc.new_page(width=595, height=842)
-                rect = fitz.Rect(50, 50, 545, 792)
-                page.insert_textbox(rect, txt[:15000], fontsize=11, fontname="helv")
-                doc.save(str(out_pdf))
+        temp_pdf = Path(tempfile.gettempdir()) / f"lime_img_{uuid.uuid4().hex[:8]}.pdf"
+        try:
+            if ensure_pdf_from_any(src, temp_pdf) and PYMUPDF_SUPPORTED:
+                target_ext = ".jpg" if fmt in ("JPG", "JPEG") else ".png"
+                doc = fitz.open(temp_pdf)
+                for page_num in range(len(doc)):
+                    page = doc.load_page(page_num)
+                    pix = page.get_pixmap(dpi=200)
+                    if len(doc) == 1:
+                        out_img = get_unique_output_path(src, target_ext)
+                    else:
+                        out_img = get_unique_output_path(src, f"_p{page_num + 1}{target_ext}")
+                    pix.save(str(out_img))
+                    outputs.append(out_img)
                 doc.close()
-        
-        if out_pdf.exists() and PYMUPDF_SUPPORTED:
-            target_ext = ".jpg" if fmt in ("JPG", "JPEG") else ".png"
-            doc = fitz.open(out_pdf)
-            for page_num in range(len(doc)):
-                page = doc.load_page(page_num)
-                pix = page.get_pixmap(dpi=200)
-                if len(doc) == 1:
-                    out_img = get_unique_output_path(src, target_ext)
-                else:
-                    out_img = get_unique_output_path(src, f"_p{page_num + 1}{target_ext}")
-                pix.save(str(out_img))
-                outputs.append(out_img)
-            doc.close()
-            try:
-                os.remove(out_pdf)
-            except Exception:
-                pass
+        finally:
+            if temp_pdf.exists():
+                try:
+                    temp_pdf.unlink()
+                except Exception:
+                    pass
+
+    return outputs
 
     return outputs
 
@@ -605,7 +743,7 @@ def convert_image(source_file: str | Path, target_format: str, quality: int = 92
 
 
 # ------------------ Conversión Universal de PDF ------------------
-def split_pdf(source_file: str | Path) -> List[Path]:
+def split_pdf(source_file: str | Path, output_stem: Optional[str] = None, output_dir: Optional[Path] = None) -> List[Path]:
     """
     Divide un archivo PDF en múltiples PDFs individuales (una página por archivo)
     en la misma ubicación del archivo original.
@@ -618,8 +756,8 @@ def split_pdf(source_file: str | Path) -> List[Path]:
     doc = fitz.open(src)
     outputs = []
     total_pages = len(doc)
-    parent = src.parent
-    stem = src.stem
+    parent = Path(output_dir) if output_dir else src.parent
+    stem = output_stem or src.stem
 
     for page_num in range(total_pages):
         new_doc = fitz.open()
@@ -639,7 +777,7 @@ def split_pdf(source_file: str | Path) -> List[Path]:
     return outputs
 
 
-def flatten_pdf(source_file: str | Path, dpi: int = 350) -> Path:
+def flatten_pdf(source_file: str | Path, dpi: int = 350, output_stem: Optional[str] = None, output_dir: Optional[Path] = None) -> Path:
     """
     Aplana un archivo PDF rasterizando cada página en alta resolución como imagen dentro de un nuevo PDF.
     Elimina texto seleccionable, capas, formularios, anotaciones y metadatos para que
@@ -676,10 +814,12 @@ def flatten_pdf(source_file: str | Path, dpi: int = 350) -> Path:
         except Exception:
             pass
 
-        out_file = src.parent / f"{src.stem}_flattened.pdf"
+        parent = Path(output_dir) if output_dir else src.parent
+        stem = output_stem or src.stem
+        out_file = parent / f"{stem}_aplanado.pdf"
         counter = 1
         while out_file.exists():
-            out_file = src.parent / f"{src.stem}_flattened ({counter}).pdf"
+            out_file = parent / f"{stem}_aplanado ({counter}).pdf"
             counter += 1
 
         out_doc.save(str(out_file), garbage=4, deflate=True, clean=True)
@@ -914,6 +1054,14 @@ def convert_media(source_file: str | Path, target_format: str) -> Path:
 def convert_files(file_paths: List[str], target_format: str) -> List[Path]:
     """Punto de entrada universal para procesar cualquier tipo de archivo."""
     results = []
+    fmt_upper = target_format.upper().replace("TO ", "").replace("A ", "").strip()
+    is_pdf_tool = fmt_upper in (
+        "PDF", "CREAR PDF", "CREATE PDF",
+        "DIVIDIR PDF", "SPLIT PDF", "DIVIDIR", "SPLIT",
+        "APLANAR PDF", "FLATTEN PDF", "APLANAR", "FLATTEN",
+        "COMPRIMIR", "COMPRESS"
+    )
+
     for f in file_paths:
         p = Path(f)
         if not p.is_file():
@@ -921,6 +1069,9 @@ def convert_files(file_paths: List[str], target_format: str) -> List[Path]:
             
         ext = p.suffix.lower()
         if ext in SPREADSHEET_EXTENSIONS or ext in SLIDE_EXTENSIONS or ext in DOCUMENT_EXTENSIONS:
+            results.extend(convert_document(p, target_format))
+        elif is_pdf_tool and ext != ".pdf":
+            # Cualquier archivo no PDF (como imágenes o txt) dirigido a herramientas PDF
             results.extend(convert_document(p, target_format))
         elif ext in VIDEO_EXTENSIONS or ext in AUDIO_EXTENSIONS:
             results.append(convert_media(p, target_format))

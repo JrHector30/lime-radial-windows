@@ -374,7 +374,15 @@ class RadialMenu(QWidget):
             chosen_item = self.formats[idx]
             paths_to_process = list(self.file_paths)
             
-            event.acceptProposedAction()
+            # IMPRESCINDIBLE: Jamás permitir que Windows Explorer borre el archivo original del usuario.
+            # Al arrastrar con Shift presionado, Explorer propone MoveAction (que borraría el archivo).
+            # Aceptar como CopyAction o TargetMoveAction garantiza que Explorer jamás borre el archivo original.
+            if event.possibleActions() & Qt.CopyAction:
+                event.setDropAction(Qt.CopyAction)
+                event.accept()
+            else:
+                event.setDropAction(Qt.TargetMoveAction)
+                event.accept()
             self.close_menu()
             
             item_key = chosen_item.upper().replace("TO ", "").replace("A ", "").strip()

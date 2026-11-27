@@ -2,7 +2,7 @@
 ; Genera el instalador oficial LimeRadial-Setup.exe
 
 #define MyAppName "Lime Radial"
-#define MyAppVersion "1.1.5"
+#define MyAppVersion "1.1.6"
 #define MyAppPublisher "Lime Radial Open Source"
 #define MyAppURL "https://github.com/JrHector30/lime-radial-windows"
 #define MyAppExeName "LimeRadial.exe"
@@ -36,6 +36,7 @@ Name: "startup"; Description: "Iniciar Lime Radial automáticamente al encender 
 
 [Files]
 Source: "dist\LimeRadial\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "lime.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\lime.ico"

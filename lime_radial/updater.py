@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
 
 from .icons import FONT_FAMILY, draw_lime_fruit_icon
 
-CURRENT_VERSION = "1.1.5"
+CURRENT_VERSION = "1.1.6"
 GITHUB_REPO = "JrHector30/lime-radial-windows"
 RELEASES_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
